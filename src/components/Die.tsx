@@ -32,14 +32,33 @@ interface Props {
 
 export function Die({ value, rollId, duration, size = 92, tone = 'normal', dim }: Props) {
   const [rot, setRot] = useState<[number, number]>([-14, 18]);
-  const turns = useRef(0);
+  const [animate, setAnimate] = useState(false);
+  const rotRef = useRef(rot);
+  rotRef.current = rot;
 
   useEffect(() => {
     if (value == null || rollId === 0) return;
-    turns.current += 1;
     const [x, y] = FACE_ROT[value];
-    const spin = duration > 0 ? 720 * turns.current : 0;
-    setRot([x + spin, y + spin]);
+    setAnimate(false);
+    if (duration <= 0) {
+      setRot([x, y]);
+      return;
+    }
+    // Snap to the same orientation within 0–360° before spinning, so angles never grow without bound;
+    // huge angles make Chrome draw stray slivers of edge-on faces mid-spin.
+    const norm = (a: number) => ((a % 360) + 360) % 360;
+    setRot([norm(rotRef.current[0]), norm(rotRef.current[1])]);
+    let f2 = 0;
+    const f1 = requestAnimationFrame(() => {
+      f2 = requestAnimationFrame(() => {
+        setAnimate(true);
+        setRot([x + 720, y + 720]);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(f1);
+      cancelAnimationFrame(f2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rollId]);
 
@@ -54,7 +73,7 @@ export function Die({ value, rollId, duration, size = 92, tone = 'normal', dim }
         className="die-cube"
         style={{
           transform: `rotateX(${rot[0]}deg) rotateY(${rot[1]}deg)`,
-          transition: `transform ${duration}ms cubic-bezier(.17,.67,.29,1.02)`,
+          transition: animate ? `transform ${duration}ms cubic-bezier(.17,.67,.29,1.02)` : 'none',
         }}
       >
         {[1, 2, 3, 4, 5, 6].map((f) => (

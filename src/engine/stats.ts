@@ -97,6 +97,7 @@ export interface CareerBat {
   playerId: string;
   name: string;
   team: string;
+  teamId: string;
   matches: number;
   innings: number;
   notOuts: number;
@@ -114,6 +115,7 @@ export interface CareerBowl {
   playerId: string;
   name: string;
   team: string;
+  teamId: string;
   matches: number;
   innings: number;
   balls: number;
@@ -135,11 +137,12 @@ export function aggregate(matches: MatchState[]): { bat: CareerBat[]; bowl: Care
     for (const t of m.teams) {
       for (const p of t.players) {
         const b = bat.get(p.id) ?? {
-          playerId: p.id, name: p.name, team: t.name, matches: 0, innings: 0, notOuts: 0, runs: 0, balls: 0,
+          playerId: p.id, name: p.name, team: t.name, teamId: t.id, matches: 0, innings: 0, notOuts: 0, runs: 0, balls: 0,
           fours: 0, sixes: 0, high: 0, highNotOut: false, fifties: 0, hundreds: 0,
         };
         b.name = p.name; // latest name wins
         b.team = t.name;
+        b.teamId = t.id;
         b.matches++;
         bat.set(p.id, b);
       }
@@ -165,11 +168,12 @@ export function aggregate(matches: MatchState[]): { bat: CareerBat[]; bowl: Care
       for (const r of bowlingCard(m, idx)) {
         if (r.balls === 0) continue;
         const c = bowl.get(r.playerId) ?? {
-          playerId: r.playerId, name: r.name, team: fldTeam.name, matches: 0, innings: 0, balls: 0, maidens: 0,
+          playerId: r.playerId, name: r.name, team: fldTeam.name, teamId: fldTeam.id, matches: 0, innings: 0, balls: 0, maidens: 0,
           runs: 0, wickets: 0, bestW: -1, bestR: 0, fiveFors: 0,
         };
         c.name = r.name;
         c.team = fldTeam.name;
+        c.teamId = fldTeam.id;
         if (!appearedBowl.has(r.playerId)) {
           c.matches++;
           appearedBowl.add(r.playerId);

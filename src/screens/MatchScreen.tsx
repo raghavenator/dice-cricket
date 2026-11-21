@@ -297,7 +297,7 @@ export function MatchScreen() {
             </div>
           </div>
           <button className="btn btn-primary" onClick={closeLive}>
-            {live.tournamentId ? 'Back to tournament' : 'Finish'}
+            {live.tournamentId ? 'Back to tournament' : live.seriesId ? 'Back to series' : 'Finish'}
           </button>
         </section>
       )}

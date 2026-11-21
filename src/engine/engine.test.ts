@@ -5,6 +5,9 @@ import {
 } from './match';
 import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling, recentForm } from './stats';
 import { createTournament, nextFixture, pointsTable, recordResult } from './tournament';
+import {
+  addLeg, createSeries, legLabel, legStanding, nextSeriesFixture, recordSeriesResult, seriesOutcome, type Series,
+} from './series';
 import { PRESET_TEAMS } from '../data/presets';
 import type { MatchSettings, MatchState, Rolls } from './types';
 
@@ -246,5 +249,82 @@ describe('stats & tournaments', () => {
       expect(t.fixtures).toHaveLength(n - 1);
       expect(t.fixtures[t.fixtures.length - 1].label).toBe('Final');
     }
+  });
+});
+
+describe('bilateral series', () => {
+  const T20 = limited(20);
+  const T10 = limited(10);
+  const TEST: MatchSettings = { format: 'test', overs: 0, bowlerMode: 'auto' };
+  const names = (id: string) => {
+    const t = PRESET_TEAMS.find((x) => x.id === id)!;
+    return { name: t.name, short: t.short };
+  };
+  const stub = (id: string, result: MatchState['result']) => ({ id, result } as MatchState);
+  const win = (id: string) => ({ kind: 'win' as const, winnerId: id, text: '' });
+  const tie = { kind: 'tie' as const, text: '' };
+  const draw = { kind: 'draw' as const, text: '' };
+  /** Plays every fixture in order with the given results. */
+  const playAll = (s: Series, results: MatchState['result'][]) =>
+    s.fixtures.reduce((acc, f, i) => recordSeriesResult(acc, f.id, stub(`m${i}`, results[i])), s);
+
+  it('merges same-format legs and expands fixtures in schedule order', () => {
+    let legs = addLeg([], TEST, 1);
+    legs = addLeg(legs, T10, 2);
+    legs = addLeg(legs, T20, 1);
+    legs = addLeg(legs, T10, 1);
+    expect(legs.map((l) => [legLabel(l.settings), l.games])).toEqual([['Test', 1], ['10-over', 3], ['20-over', 1]]);
+    const s = createSeries('s', 'S', A.id, B.id, legs);
+    expect(s.fixtures.map((f) => `${f.legIdx}:${f.game}`)).toEqual(['0:1', '1:1', '1:2', '1:3', '2:1']);
+    expect(nextSeriesFixture(s)?.id).toBe(s.fixtures[0].id);
+  });
+
+  it('single format: most wins takes it, ties and draws count for nobody', () => {
+    const s = createSeries('s', 'S', A.id, B.id, addLeg([], T20, 5));
+    const mid = playAll({ ...s, fixtures: s.fixtures.slice(0, 3) }, [win(A.id), tie, win(B.id)]);
+    expect(legStanding({ ...mid, fixtures: [...mid.fixtures, ...s.fixtures.slice(3)] }, 0, names).text).toBe('Level 1-1');
+    const done = playAll(s, [win(A.id), tie, win(B.id), win(A.id), win(A.id)]);
+    expect(done.status).toBe('complete');
+    const o = seriesOutcome(done, names);
+    expect(o).toMatchObject({ complete: true, winnerId: A.id, multi: false, score: '3-1' });
+    expect(o.text).toBe(`${A.name} won the 5-match 20-over series 3-1`);
+    const drawn = playAll(createSeries('s', 'S', A.id, B.id, addLeg([], TEST, 2)), [win(B.id), win(A.id)]);
+    expect(seriesOutcome(drawn, names)).toMatchObject({ winnerId: null, text: 'The 2-match Test series was drawn 1-1' });
+    const oneOff = playAll(createSeries('s', 'S', A.id, B.id, addLeg([], TEST, 1)), [draw]);
+    expect(legStanding(oneOff, 0, names).text).toBe('The one-off Test was drawn');
+  });
+
+  it('multi-format: most mini-series wins, equal is a drawn series', () => {
+    const legs3 = addLeg(addLeg(addLeg([], TEST, 1), T10, 3), T20, 1);
+    const s3 = createSeries('s', 'S', A.id, B.id, legs3);
+    const won = playAll(s3, [win(B.id), win(A.id), win(A.id), win(B.id), win(A.id)]);
+    expect(legStanding(won, 1, names).text).toBe(`${A.name} won the 3-match 10-over series 2-1`);
+    expect(seriesOutcome(won, names)).toMatchObject({ winnerId: A.id, home: 2, away: 1, multi: true, text: `${A.name} won the multi-format series 2-1` });
+
+    const legs2 = addLeg(addLeg([], TEST, 1), T20, 1);
+    const level = playAll(createSeries('s', 'S', A.id, B.id, legs2), [win(A.id), win(B.id)]);
+    expect(seriesOutcome(level, names)).toMatchObject({ winnerId: null, text: 'The multi-format series was drawn 1-1' });
+
+    // Drawn mini-series count for nobody: Test drawn, 10-over level 1-1 (one tie), 20-over to A → A wins 1-0.
+    const oneDrawn = playAll(s3, [draw, win(A.id), win(B.id), tie, win(A.id)]);
+    expect(legStanding(oneDrawn, 1, names).winnerId).toBeNull();
+    expect(seriesOutcome(oneDrawn, names)).toMatchObject({ winnerId: A.id, home: 1, away: 0, score: '1-0' });
+    // 3 formats, one drawn, the other two split → drawn series.
+    const split = playAll(s3, [draw, win(A.id), win(A.id), win(B.id), win(B.id)]);
+    expect(seriesOutcome(split, names)).toMatchObject({ complete: true, winnerId: null, home: 1, away: 1, text: 'The multi-format series was drawn 1-1' });
+    const inProgress = playAll({ ...s3, fixtures: s3.fixtures.slice(0, 2) }, [win(B.id), win(A.id)]);
+    expect(seriesOutcome({ ...inProgress, fixtures: [...inProgress.fixtures, ...s3.fixtures.slice(2)] }, names).text)
+      .toBe(`1 of 3 series decided · ${B.short} lead 1-0`);
+  });
+
+  it('simulated series always complete', () => {
+    const rng = seeded(99);
+    let s = createSeries('s', 'S', A.id, B.id, addLeg(addLeg([], { ...TEST, overs: 3 }, 1), limited(5), 3));
+    for (let f = nextSeriesFixture(s); f; f = nextSeriesFixture(s)) {
+      const settings = s.legs[f.legIdx].settings;
+      s = recordSeriesResult(s, f.id, simulate(createMatch(f.id, A, B, settings, rng), rng, 'match'));
+    }
+    expect(s.status).toBe('complete');
+    expect(seriesOutcome(s, names).complete).toBe(true);
   });
 });

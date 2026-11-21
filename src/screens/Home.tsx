@@ -7,6 +7,7 @@ export function Home() {
   const live = useGame((s) => s.live);
   const tournaments = useGame((s) => s.tournaments);
   const active = tournaments.filter((t) => t.status === 'active').length;
+  const activeSeries = useGame((s) => s.series.filter((x) => x.status === 'active').length);
   const resumable = live && !live.match.result ? live.match : null;
 
   return (
@@ -42,6 +43,14 @@ export function Home() {
           <span className="mode-desc">
             League, league + playoffs, or knockout with saved stats.
             {active > 0 && <b> {active} in progress.</b>}
+          </span>
+        </button>
+        <button className="mode" onClick={() => go({ name: 'seriesList' })}>
+          <span className="mode-icon">🤝</span>
+          <span className="mode-title">Bilateral Series</span>
+          <span className="mode-desc">
+            Two teams, a multi-match series across one or more formats.
+            {activeSeries > 0 && <b> {activeSeries} in progress.</b>}
           </span>
         </button>
         <button className="mode" onClick={() => go({ name: 'teams' })}>

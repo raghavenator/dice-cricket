@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BattingCard, BowlingCard, InningsTabs, scoreText, inningsTitle } from '../components/Scorecard';
 import { MatchCharts } from '../components/Charts';
 import { BattingCardHover, BowlingCardHover, HoverCard } from '../components/PlayerHover';
@@ -61,6 +61,53 @@ function SortTable<T>({ rows, cols, initial, rowKey }: { rows: T[]; cols: Col<T>
   );
 }
 
+interface TeamOpt { id: string; name: string; short: string; color: string }
+
+function TeamFilter({ options, value, onChange }: { options: TeamOpt[]; value: string[]; onChange: (ids: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, [open]);
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const label =
+    value.length === 0 ? 'All teams'
+    : value.length === 1 ? options.find((o) => o.id === value[0])?.name ?? '1 team'
+    : `${value.length} teams`;
+  return (
+    <div className="multi" ref={ref}>
+      Teams{' '}
+      <button className="multi-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {label} ▾
+      </button>
+      {open && (
+        <div className="multi-pop" role="listbox" aria-multiselectable>
+          <label className="multi-opt">
+            <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} />
+            <b>All teams</b>
+          </label>
+          {options.map((o) => (
+            <label key={o.id} className="multi-opt">
+              <input type="checkbox" checked={value.includes(o.id)} onChange={() => toggle(o.id)} />
+              <span className="tab-swatch" style={{ background: o.color }} />
+              {o.name}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const num = (s: string) => (s === '-' ? -1 : Number(s));
 const asc = (s: string) => (s === '-' ? -Infinity : -Number(s)); // lower is better → sort desc on negated
 
@@ -95,12 +142,16 @@ const BOWL_COLS: Col<CareerBowl>[] = [
   { key: '5w', label: '5w', value: (r) => r.fiveFors, hideSm: true },
 ];
 
-export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
+export function StatsScreen({ tournamentId, seriesId }: { tournamentId?: string; seriesId?: string }) {
   const go = useGame((s) => s.go);
   const tournaments = useGame((s) => s.tournaments);
   const [records, setRecords] = useState<MatchRecord[] | null>(null);
-  const [scope, setScope] = useState<string>(tournamentId ?? 'all');
-  const initialFormat: Format = tournaments.find((t) => t.id === tournamentId)?.settings.format ?? 'limited';
+  const allSeries = useGame((s) => s.series);
+  const [scope, setScope] = useState<string>(tournamentId ?? (seriesId ? `series:${seriesId}` : 'all'));
+  const initialFormat: Format =
+    tournaments.find((t) => t.id === tournamentId)?.settings.format ??
+    allSeries.find((s) => s.id === seriesId)?.legs[0]?.settings.format ??
+    'limited';
   const [format, setFormat] = useState<Format>(initialFormat);
   const [tab, setTab] = useState<'bat' | 'bowl' | 'matches'>('bat');
 
@@ -113,12 +164,27 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
       (records ?? []).filter(
         (r) =>
           r.match.settings.format === format &&
-          (scope === 'all' || (scope === 'exhibition' ? r.tournamentId === null : r.tournamentId === scope)),
+          (scope === 'all' ||
+            (scope === 'exhibition'
+              ? !r.tournamentId && !r.seriesId
+              : scope.startsWith('series:')
+                ? r.seriesId === scope.slice(7)
+                : r.tournamentId === scope)),
       ),
     [records, scope, format],
   );
   const filteredMatches = useMemo(() => filtered.map((r) => r.match), [filtered]);
   const agg = useMemo(() => aggregate(filteredMatches), [filteredMatches]);
+  const [teamSel, setTeamSel] = useState<string[]>([]);
+  const teamOpts = useMemo(() => {
+    const byId = new Map<string, TeamOpt>();
+    for (const m of filteredMatches) for (const t of m.teams) if (!byId.has(t.id)) byId.set(t.id, t);
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredMatches]);
+  // Ignore picks for teams not present under the current competition/format filter.
+  const activeTeams = teamSel.filter((id) => teamOpts.some((o) => o.id === id));
+  const byTeam = <T extends { teamId: string }>(rows: T[]) =>
+    activeTeams.length ? rows.filter((r) => activeTeams.includes(r.teamId)) : rows;
   // Player names get a hover card with their last 5 innings in the current filter.
   const batCols = useMemo<Col<CareerBat>[]>(
     () =>
@@ -148,8 +214,15 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
       ),
     [filteredMatches, format],
   );
-  const tName = (id: string | null) => (id ? tournaments.find((t) => t.id === id)?.name ?? 'Tournament' : 'Exhibition');
-  const back: Screen = { name: 'stats', tournamentId: scope !== 'all' && scope !== 'exhibition' ? scope : undefined };
+  const compName = (r: MatchRecord) =>
+    r.tournamentId
+      ? tournaments.find((t) => t.id === r.tournamentId)?.name ?? 'Tournament'
+      : r.seriesId
+        ? allSeries.find((s) => s.id === r.seriesId)?.name ?? 'Series'
+        : 'Exhibition';
+  const back: Screen = scope.startsWith('series:')
+    ? { name: 'stats', seriesId: scope.slice(7) }
+    : { name: 'stats', tournamentId: scope !== 'all' && scope !== 'exhibition' ? scope : undefined };
 
   return (
     <div className="screen">
@@ -157,6 +230,9 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
         <h2>Stats & History</h2>
         {tournamentId && (
           <button className="btn" onClick={() => go({ name: 'tourHub', id: tournamentId })}>← Back to tournament</button>
+        )}
+        {seriesId && (
+          <button className="btn" onClick={() => go({ name: 'seriesHub', id: seriesId })}>← Back to series</button>
         )}
       </div>
 
@@ -166,11 +242,25 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
           <select value={scope} onChange={(e) => setScope(e.target.value)}>
             <option value="all">All matches</option>
             <option value="exhibition">Exhibitions only</option>
-            {tournaments.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
+            {tournaments.length > 0 && (
+              <optgroup label="Tournaments">
+                {tournaments.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {allSeries.length > 0 && (
+              <optgroup label="Bilateral series">
+                {allSeries.map((s) => (
+                  <option key={s.id} value={`series:${s.id}`}>{s.name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
+        {tab !== 'matches' && teamOpts.length > 0 && (
+          <TeamFilter options={teamOpts} value={activeTeams} onChange={setTeamSel} />
+        )}
         <div className="seg">
           <button className={`seg-btn ${format === 'limited' ? 'seg-on' : ''}`} onClick={() => setFormat('limited')}>Limited overs</button>
           <button className={`seg-btn ${format === 'test' ? 'seg-on' : ''}`} onClick={() => setFormat('test')}>Test</button>
@@ -190,9 +280,9 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
       ) : (
         <div className="card">
           {tab === 'bat' && (
-            <SortTable rows={agg.bat.filter((r) => r.innings > 0)} cols={batCols} initial="runs" rowKey={(r) => r.playerId} />
+            <SortTable rows={byTeam(agg.bat).filter((r) => r.innings > 0)} cols={batCols} initial="runs" rowKey={(r) => r.playerId} />
           )}
-          {tab === 'bowl' && <SortTable rows={agg.bowl} cols={bowlCols} initial="wkts" rowKey={(r) => r.playerId} />}
+          {tab === 'bowl' && <SortTable rows={byTeam(agg.bowl)} cols={bowlCols} initial="wkts" rowKey={(r) => r.playerId} />}
           {tab === 'matches' && (
             <div className="list">
               {filtered.map((r) => (
@@ -202,7 +292,7 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
                   onClick={() => go({ name: 'matchView', matchId: r.id, back })}
                 >
                   <span className="muted small">
-                    {new Date(r.completedAt).toLocaleDateString()} · {tName(r.tournamentId)}
+                    {new Date(r.completedAt).toLocaleDateString()} · {compName(r)}
                   </span>
                   <span>
                     {r.match.innings.map((_, i) => `${inningsTitle(r.match, i)} ${scoreText(r.match, i)}`).join('  ·  ')}

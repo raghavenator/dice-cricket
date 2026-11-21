@@ -3,6 +3,7 @@ import { db, uid, type LiveRecord, type MatchRecord } from '../data/db';
 import { PRESET_TEAMS } from '../data/presets';
 import { createMatch, simulate } from '../engine/match';
 import { createTournament, recordResult, type Structure, type Tournament } from '../engine/tournament';
+import { createSeries, recordSeriesResult, type Leg, type Series } from '../engine/series';
 import type { MatchSettings, MatchState, Team } from '../engine/types';
 
 export type Screen =
@@ -13,8 +14,11 @@ export type Screen =
   | { name: 'tournaments' }
   | { name: 'tourNew' }
   | { name: 'tourHub'; id: string }
+  | { name: 'seriesList' }
+  | { name: 'seriesNew' }
+  | { name: 'seriesHub'; id: string }
   | { name: 'teams' }
-  | { name: 'stats'; tournamentId?: string }
+  | { name: 'stats'; tournamentId?: string; seriesId?: string }
   | { name: 'matchView'; matchId: string; back: Screen };
 
 export type RollSpeed = 'normal' | 'fast' | 'instant';
@@ -46,6 +50,7 @@ interface GameState {
   screen: Screen;
   teams: Team[];
   tournaments: Tournament[];
+  series: Series[];
   live: LiveRecord | null;
   /** Every completed match, oldest first (used for player tooltips). */
   history: MatchRecord[];
@@ -61,13 +66,23 @@ interface GameState {
   deleteTeam(id: string): Promise<void>;
   restorePresets(): Promise<void>;
 
-  startMatch(homeId: string, awayId: string, settings: MatchSettings, tournamentId?: string, fixtureId?: string): void;
+  startMatch(homeId: string, awayId: string, settings: MatchSettings, ctx?: MatchContext): void;
   updateLive(m: MatchState): void;
   closeLive(): void;
 
   newTournament(name: string, teamIds: string[], settings: MatchSettings, structure: Structure): Promise<string>;
   deleteTournament(id: string): Promise<void>;
   simFixture(tournamentId: string, fixtureId: string): Promise<void>;
+
+  newSeries(name: string, homeId: string, awayId: string, legs: Leg[]): Promise<string>;
+  deleteSeries(id: string): Promise<void>;
+  simSeriesFixture(seriesId: string, fixtureId: string): Promise<void>;
+}
+
+export interface MatchContext {
+  tournamentId?: string;
+  seriesId?: string;
+  fixtureId?: string;
 }
 
 const teamById = (teams: Team[], id: string) => {
@@ -84,6 +99,7 @@ export const useGame = create<GameState>((set, get) => {
       id: rec.match.id,
       tournamentId: rec.tournamentId,
       fixtureId: rec.fixtureId,
+      seriesId: rec.seriesId ?? null,
       completedAt: Date.now(),
       match: rec.match,
     };
@@ -98,6 +114,15 @@ export const useGame = create<GameState>((set, get) => {
         set({ tournaments: get().tournaments.map((x) => (x.id === next.id ? next : x)) });
       }
     }
+    if (rec.seriesId && rec.fixtureId) {
+      const s = await db.series.get(rec.seriesId);
+      const f = s?.fixtures.find((x) => x.id === rec.fixtureId);
+      if (s && f && !f.result) {
+        const next = recordSeriesResult(s, rec.fixtureId, rec.match);
+        await db.series.put(next);
+        set({ series: get().series.map((x) => (x.id === next.id ? next : x)) });
+      }
+    }
   }
 
   return {
@@ -105,6 +130,7 @@ export const useGame = create<GameState>((set, get) => {
     screen: { name: 'home' },
     teams: [],
     tournaments: [],
+    series: [],
     live: null,
     history: [],
     exPick: [null, null],
@@ -123,8 +149,9 @@ export const useGame = create<GameState>((set, get) => {
         await db.live.put(live);
       }
       const tournaments = await db.tournaments.orderBy('createdAt').reverse().toArray();
+      const series = await db.series.orderBy('createdAt').reverse().toArray();
       const history = await db.matches.orderBy('completedAt').toArray();
-      set({ teams, tournaments, live, history, ready: true });
+      set({ teams, tournaments, series, live, history, ready: true });
     },
 
     go(screen) {
@@ -165,10 +192,17 @@ export const useGame = create<GameState>((set, get) => {
       set({ teams: [...PRESET_TEAMS, ...custom] });
     },
 
-    startMatch(homeId, awayId, settings, tournamentId, fixtureId) {
+    startMatch(homeId, awayId, settings, ctx = {}) {
       const { teams } = get();
       const match = createMatch(uid('m'), teamById(teams, homeId), teamById(teams, awayId), settings, Math.random);
-      const live: LiveRecord = { key: 'live', match, tournamentId: tournamentId ?? null, fixtureId: fixtureId ?? null, saved: false };
+      const live: LiveRecord = {
+        key: 'live',
+        match,
+        tournamentId: ctx.tournamentId ?? null,
+        seriesId: ctx.seriesId ?? null,
+        fixtureId: ctx.fixtureId ?? null,
+        saved: false,
+      };
       set({ live, screen: { name: 'match' } });
       void db.live.put(live);
     },
@@ -190,7 +224,12 @@ export const useGame = create<GameState>((set, get) => {
 
     closeLive() {
       const live = get().live;
-      set({ live: null, screen: live?.tournamentId ? { name: 'tourHub', id: live.tournamentId } : { name: 'home' } });
+      const screen: Screen = live?.tournamentId
+        ? { name: 'tourHub', id: live.tournamentId }
+        : live?.seriesId
+          ? { name: 'seriesHub', id: live.seriesId }
+          : { name: 'home' };
+      set({ live: null, screen });
       void db.live.delete('live');
     },
 
@@ -221,6 +260,35 @@ export const useGame = create<GameState>((set, get) => {
         'match',
       );
       await finalize({ key: 'live', match: m, tournamentId, fixtureId, saved: false });
+    },
+
+    async newSeries(name, homeId, awayId, legs) {
+      const s = createSeries(uid('s'), name, homeId, awayId, legs);
+      await db.series.put(s);
+      set({ series: [s, ...get().series] });
+      return s.id;
+    },
+
+    async deleteSeries(id) {
+      await db.series.delete(id);
+      await db.matches.where('seriesId').equals(id).delete();
+      set({
+        series: get().series.filter((s) => s.id !== id),
+        history: get().history.filter((r) => r.seriesId !== id),
+      });
+    },
+
+    async simSeriesFixture(seriesId, fixtureId) {
+      const s = get().series.find((x) => x.id === seriesId);
+      const f = s?.fixtures.find((x) => x.id === fixtureId);
+      if (!s || !f || f.result) return;
+      const { teams } = get();
+      const m = simulate(
+        createMatch(uid('m'), teamById(teams, s.homeId), teamById(teams, s.awayId), s.legs[f.legIdx].settings, Math.random),
+        Math.random,
+        'match',
+      );
+      await finalize({ key: 'live', match: m, tournamentId: null, seriesId, fixtureId, saved: false });
     },
   };
 });

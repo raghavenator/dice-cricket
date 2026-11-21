@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { MatchRecord } from '../data/db';
 import { getTeam, oversLimit } from '../engine/match';
+import { legLabel } from '../engine/series';
 import { formatOvers, recentForm } from '../engine/stats';
 import type { MatchState, Team } from '../engine/types';
 import { useGame } from '../store/useGameStore';
@@ -23,10 +24,20 @@ function chaseNote(m: MatchState, teamId: string) {
 
 export function ResultSummary({ record }: { record: MatchRecord }) {
   const tournaments = useGame((s) => s.tournaments);
+  const allSeries = useGame((s) => s.series);
   const m = record.match;
   const t = record.tournamentId ? tournaments.find((x) => x.id === record.tournamentId) : undefined;
   const fixture = t?.fixtures.find((f) => f.id === record.fixtureId);
-  const comp = t ? `${t.name}${fixture ? ` · ${fixture.label}` : ''}` : 'Exhibition';
+  const s = record.seriesId ? allSeries.find((x) => x.id === record.seriesId) : undefined;
+  const sf = s?.fixtures.find((f) => f.id === record.fixtureId);
+  const sLeg = sf && s ? s.legs[sf.legIdx] : undefined;
+  const comp = t
+    ? `${t.name}${fixture ? ` · ${fixture.label}` : ''}`
+    : s
+      ? `${s.name}${sf && sLeg ? ` · ${legLabel(sLeg.settings)} ${sf.game}/${sLeg.games}` : ''}`
+      : record.seriesId
+        ? 'Series'
+        : 'Exhibition';
   const fmt = m.settings.format === 'test' ? 'Test' : `${m.settings.overs} ov`;
   return (
     <div className="rs">

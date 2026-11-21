@@ -5,6 +5,7 @@ import { ExhibitionSettings, ExhibitionTeams } from './screens/Exhibition';
 import { MatchScreen } from './screens/MatchScreen';
 import { TournamentHub, TournamentList, TournamentNew } from './screens/Tournaments';
 import { TeamsScreen } from './screens/Teams';
+import { SeriesHub, SeriesList, SeriesNew } from './screens/Series';
 import { MatchView, StatsScreen } from './screens/Stats';
 
 export function App() {
@@ -30,8 +31,11 @@ export function App() {
       case 'tournaments': body = <TournamentList />; break;
       case 'tourNew': body = <TournamentNew />; break;
       case 'tourHub': body = <TournamentHub key={screen.id} id={screen.id} />; break;
+      case 'seriesList': body = <SeriesList />; break;
+      case 'seriesNew': body = <SeriesNew />; break;
+      case 'seriesHub': body = <SeriesHub key={screen.id} id={screen.id} />; break;
       case 'teams': body = <TeamsScreen />; break;
-      case 'stats': body = <StatsScreen key={screen.tournamentId ?? 'all'} tournamentId={screen.tournamentId} />; break;
+      case 'stats': body = <StatsScreen key={screen.tournamentId ?? screen.seriesId ?? 'all'} tournamentId={screen.tournamentId} seriesId={screen.seriesId} />; break;
       case 'matchView': body = <MatchView key={screen.matchId} matchId={screen.matchId} back={screen.back} />; break;
     }
   }
@@ -45,6 +49,7 @@ export function App() {
         {ready && screen.name !== 'home' && (
           <nav className="topnav">
             <button onClick={() => go({ name: 'tournaments' })}>Tournaments</button>
+            <button onClick={() => go({ name: 'seriesList' })}>Series</button>
             <button onClick={() => go({ name: 'teams' })}>Teams</button>
             <button onClick={() => go({ name: 'stats' })}>Stats</button>
           </nav>

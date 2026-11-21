@@ -230,7 +230,7 @@ export function TournamentHub({ id }: { id: string }) {
                   disabled={busy || !!missingTeam}
                   onClick={() => {
                     if (live && !live.match.result && !confirm('Another match is in progress. Abandon it and start this one?')) return;
-                    startMatch(next.homeId, next.awayId, t.settings, t.id, next.id);
+                    startMatch(next.homeId, next.awayId, t.settings, { tournamentId: t.id, fixtureId: next.id });
                   }}
                 >
                   🎲 Play
