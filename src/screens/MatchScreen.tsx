@@ -1,0 +1,403 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Die } from '../components/Die';
+import { BallChip, BattingCard, BowlingCard, InningsTabs } from '../components/Scorecard';
+import { rollDice } from '../engine/dice';
+import {
+  BALLS_PER_OVER, applyBall, bowlerOptions, currentInnings, getTeam, matchTotal, needsBowler, oversLimit,
+  pickAutoBowler, setBowler, simulate, type SimUntil,
+} from '../engine/match';
+import { bowlingCard, formatOvers, ratio } from '../engine/stats';
+import type { Ball, MatchState, Rolls } from '../engine/types';
+import { useGame, type RollSpeed } from '../store/useGameStore';
+
+const SPIN_MS: Record<RollSpeed, number> = { normal: 800, fast: 320, instant: 0 };
+const SETTLE_MS: Record<RollSpeed, number> = { normal: 350, fast: 120, instant: 0 };
+
+type Phase = 'idle' | 'roll1' | 'roll2';
+type Scope = 'over' | 'innings' | 'match';
+
+function describe(m: MatchState, b: Ball): string {
+  const inn = m.innings.find((i) => i.balls.includes(b)) ?? currentInnings(m);
+  const bat = getTeam(m, inn.battingTeamId).players.find((p) => p.id === b.batterId)?.name;
+  const fld = getTeam(m, inn.bowlingTeamId);
+  const bowl = fld.players.find((p) => p.id === b.bowlerId)?.name;
+  const pre = `${bowl} to ${bat}: `;
+  if (b.roll1 !== 5) {
+    const words: Record<number, string> = { 1: '1 run', 2: '2 runs', 3: '3 runs', 4: 'FOUR!', 6: 'SIX!' };
+    return pre + words[b.runs];
+  }
+  if (!b.wicket) return `${pre}wicket check… ${b.roll2} — survives! Dot ball.`;
+  const how =
+    b.how === 'caught'
+      ? `caught by ${fld.players.find((p) => p.id === b.fielderId)?.name}`
+      : b.how === 'lbw' ? 'LBW' : 'BOWLED';
+  return `${pre}wicket check… ${b.roll2} — OUT! ${how}`;
+}
+
+export function MatchScreen() {
+  const live = useGame((s) => s.live);
+  const updateLive = useGame((s) => s.updateLive);
+  const closeLive = useGame((s) => s.closeLive);
+  const go = useGame((s) => s.go);
+  const prefs = useGame((s) => s.prefs);
+  const setPrefs = useGame((s) => s.setPrefs);
+
+  const m = live?.match ?? null;
+  const mRef = useRef(m);
+  mRef.current = m;
+
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [d1, setD1] = useState<{ v: number | null; id: number }>({ v: null, id: 0 });
+  const [d2, setD2] = useState<{ v: number | null; id: number }>({ v: null, id: 0 });
+  const [showCheck, setShowCheck] = useState(false);
+  const [commentary, setCommentary] = useState<string[]>([]);
+  const [auto, setAuto] = useState(false);
+  const [scope, setScope] = useState<Scope>('over');
+  const anchor = useRef({ inn: 0, over: 0 });
+  const [viewIdx, setViewIdx] = useState<number | null>(null);
+  const timers = useRef<number[]>([]);
+
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(window.setTimeout(fn, ms));
+  };
+
+  const pushComment = (lines: string[]) => {
+    const newestFirst = [...lines].reverse();
+    setCommentary((c) => [...newestFirst, ...c].slice(0, 30));
+  };
+
+  const commit = useCallback(
+    (rolls: Rolls) => {
+      const cur = mRef.current;
+      if (!cur) return;
+      const next = applyBall(cur, rolls);
+      const prevInn = cur.innings.length - 1;
+      const ball = next.innings[prevInn].balls[next.innings[prevInn].balls.length - 1];
+      const lines = [describe(next, ball)];
+      if (next.innings.length > cur.innings.length || next.innings[prevInn].done) {
+        const done = next.innings[prevInn];
+        lines.push(`End of innings — ${getTeam(next, done.battingTeamId).name} ${done.runs}/${done.wickets} (${formatOvers(done.legalBalls)} ov)`);
+        const ni = next.innings[next.innings.length - 1];
+        if (next.innings.length > cur.innings.length && ni.target !== null)
+          lines.push(`${getTeam(next, ni.battingTeamId).name} need ${ni.target} to win`);
+      }
+      if (next.result) lines.push(`🏆 ${next.result.text}`);
+      pushComment(lines);
+      updateLive(next);
+      setPhase('idle');
+    },
+    [updateLive],
+  );
+
+  const roll = useCallback(() => {
+    const cur = mRef.current;
+    if (!cur || cur.result || phase !== 'idle' || needsBowler(cur)) return;
+    const r = rollDice(Math.random);
+    const spin = SPIN_MS[prefs.rollSpeed];
+    const settle = SETTLE_MS[prefs.rollSpeed];
+    setPhase('roll1');
+    setShowCheck(false);
+    setD1((d) => ({ v: r.roll1, id: d.id + 1 }));
+    if (r.roll1 === 5) {
+      later(() => {
+        setPhase('roll2');
+        setShowCheck(true);
+        setD2((d) => ({ v: r.roll2!, id: d.id + 1 }));
+        later(() => commit(r), spin + settle * 2);
+      }, spin + settle);
+    } else {
+      later(() => commit(r), spin + settle);
+    }
+  }, [phase, prefs.rollSpeed, commit]);
+
+  // Auto-roll loop
+  useEffect(() => {
+    if (!auto || !m || phase !== 'idle') return;
+    if (m.result) {
+      setAuto(false);
+      return;
+    }
+    const innIdx = m.innings.length - 1;
+    const over = Math.floor(currentInnings(m).legalBalls / BALLS_PER_OVER);
+    if ((scope === 'over' && (innIdx !== anchor.current.inn || over !== anchor.current.over)) ||
+        (scope === 'innings' && innIdx !== anchor.current.inn)) {
+      setAuto(false);
+      return;
+    }
+    if (needsBowler(m)) return; // waits for a manual pick
+    const t = window.setTimeout(roll, prefs.autoDelay);
+    return () => clearTimeout(t);
+  }, [auto, m, phase, scope, prefs.autoDelay, roll]);
+
+  const toggleAuto = useCallback(() => {
+    const cur = mRef.current;
+    if (!cur) return;
+    setAuto((a) => {
+      if (!a) {
+        anchor.current = {
+          inn: cur.innings.length - 1,
+          over: Math.floor(currentInnings(cur).legalBalls / BALLS_PER_OVER),
+        };
+      }
+      return !a;
+    });
+  }, []);
+
+  // Keyboard: Space = roll, A = auto
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        roll();
+      } else if (e.key === 'a' || e.key === 'A') toggleAuto();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [roll, toggleAuto]);
+
+  if (!m || !live) {
+    return (
+      <div className="screen">
+        <p>No match in progress.</p>
+        <button className="btn" onClick={() => go({ name: 'home' })}>Home</button>
+      </div>
+    );
+  }
+
+  const inn = currentInnings(m);
+  const curIdx = m.innings.length - 1;
+  const shownIdx = viewIdx ?? curIdx;
+  const batTeam = getTeam(m, inn.battingTeamId);
+  const bowlTeam = getTeam(m, inn.bowlingTeamId);
+  const limit = oversLimit(m.settings);
+  const busy = phase !== 'idle';
+  const pickNeeded = needsBowler(m);
+  // Keep showing the over just completed until the first ball of the next one.
+  const thisOverNo = Math.floor(Math.max(0, inn.legalBalls - 1) / BALLS_PER_OVER);
+  const thisOver = inn.balls.filter((b) => b.over === thisOverNo);
+
+  const sim = (until: SimUntil) => {
+    if (busy) return;
+    const before = m;
+    const next = simulate(m, Math.random, until);
+    const lines: string[] = [];
+    for (let i = before.innings.length - 1; i < next.innings.length; i++) {
+      const x = next.innings[i];
+      if (x.done) lines.push(`End of innings — ${getTeam(next, x.battingTeamId).name} ${x.runs}/${x.wickets} (${formatOvers(x.legalBalls)} ov)`);
+    }
+    lines.unshift(`Simulated ${until === 'over' ? 'to end of over' : until === 'innings' ? 'to end of innings' : 'rest of match'}`);
+    if (next.result) lines.push(`🏆 ${next.result.text}`);
+    pushComment(lines);
+    setAuto(false);
+    updateLive(next);
+  };
+
+  // Chase / lead info
+  let situation = '';
+  if (inn.target !== null && !inn.done) {
+    const need = inn.target - inn.runs;
+    situation = `Need ${need} to win`;
+    if (limit !== null) {
+      const left = limit * BALLS_PER_OVER - inn.legalBalls;
+      situation += ` from ${left} ball${left === 1 ? '' : 's'} · RRR ${ratio(need * 6, left)}`;
+    }
+  } else if (m.settings.format === 'test' && curIdx > 0 && !m.result) {
+    const diff = matchTotal(m, inn.battingTeamId) - matchTotal(m, inn.bowlingTeamId);
+    situation = diff === 0 ? 'Scores level' : diff > 0 ? `Lead by ${diff}` : `Trail by ${-diff}`;
+  } else if (curIdx === 0 && !inn.balls.length) {
+    situation = m.tossText;
+  }
+
+  const bowlRow = inn.bowlerId ? bowlingCard(m, curIdx).find((r) => r.playerId === inn.bowlerId) : undefined;
+  const spin = SPIN_MS[prefs.rollSpeed];
+
+  return (
+    <div className="screen match">
+      {/* Scoreboard */}
+      <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
+        <div className="sb-main">
+          <div className="sb-team">
+            <span className="sb-swatch" />
+            <span className="sb-name">{batTeam.name}</span>
+            <span className="sb-vs muted">v {bowlTeam.short}</span>
+          </div>
+          <div className="sb-score">
+            {inn.runs}/{inn.wickets}
+            <span className="sb-overs">
+              {formatOvers(inn.legalBalls)}
+              {limit ? `/${limit}` : ''} ov
+            </span>
+          </div>
+          <div className="sb-sub">
+            <span>RR {ratio(inn.runs * 6, inn.legalBalls)}</span>
+            {situation && <span className="sb-situation">{situation}</span>}
+          </div>
+        </div>
+        <div className="sb-side">
+          <div className="muted small">
+            {m.settings.format === 'test' ? 'Test match' : `${m.settings.overs}-over match`} · Innings {curIdx + 1}
+          </div>
+          <div className="this-over">
+            <span className="muted small">This over</span>
+            <div className="chips">
+              {thisOver.map((b, i) => <BallChip key={i} b={b} big />)}
+              {Array.from({ length: Math.max(0, BALLS_PER_OVER - thisOver.length) }, (_, i) => (
+                <span key={`e${i}`} className="chip chip-empty chip-big" />
+              ))}
+            </div>
+          </div>
+          {bowlRow && (
+            <div className="small">
+              <span className="muted">Bowling:</span> {bowlRow.name} {formatOvers(bowlRow.balls)}-{bowlRow.maidens}-{bowlRow.runs}-{bowlRow.wickets}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {m.result && (
+        <section className="result-banner">
+          <div>
+            <div className="result-title">🏆 {m.result.text}</div>
+            <div className="muted small">
+              {live.saved ? 'Saved to stats.' : 'Saving…'} Use the tabs below to browse the full scorecard.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={closeLive}>
+            {live.tournamentId ? 'Back to tournament' : 'Finish'}
+          </button>
+        </section>
+      )}
+
+      <div className="match-grid">
+        {/* Dice panel */}
+        <section className="dice-panel card">
+          <div className="dice-row">
+            <div className="die-slot">
+              <Die value={d1.v} rollId={d1.id} duration={spin} size={104} />
+              <span className="small muted">Delivery</span>
+            </div>
+            <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
+              <Die value={d2.v} rollId={d2.id} duration={spin} size={72} tone="check" dim={!showCheck} />
+              <span className="small muted">Wicket check</span>
+            </div>
+          </div>
+          <div className="dice-legend small muted">
+            1·2·3·4·6 = runs &nbsp;|&nbsp; 5 = wicket check (4+ out, 3 or less dot)
+          </div>
+
+          {!m.result && (
+            <>
+              <button
+                className="btn btn-primary btn-roll"
+                onClick={roll}
+                disabled={busy || pickNeeded}
+                title="Space"
+              >
+                {busy ? 'Rolling…' : pickNeeded ? 'Choose a bowler' : '🎲 Roll'}
+              </button>
+              <div className="auto-row">
+                <button className={`btn ${auto ? 'btn-on' : ''}`} onClick={toggleAuto} title="A">
+                  {auto ? '⏸ Stop auto' : '▶ Auto-roll'}
+                </button>
+                <label className="small">
+                  until end of{' '}
+                  <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
+                    <option value="over">this over</option>
+                    <option value="innings">this innings</option>
+                    <option value="match">the match</option>
+                  </select>
+                </label>
+              </div>
+              <div className="auto-row small">
+                <label>
+                  Every {(prefs.autoDelay / 1000).toFixed(1)}s
+                  <input
+                    type="range" min={300} max={5000} step={100} value={prefs.autoDelay}
+                    onChange={(e) => setPrefs({ autoDelay: Number(e.target.value) })}
+                  />
+                </label>
+                <label>
+                  Dice{' '}
+                  <select value={prefs.rollSpeed} onChange={(e) => setPrefs({ rollSpeed: e.target.value as RollSpeed })}>
+                    <option value="normal">Normal</option>
+                    <option value="fast">Fast</option>
+                    <option value="instant">Instant</option>
+                  </select>
+                </label>
+              </div>
+              <div className="sim-row">
+                <span className="small muted">Simulate:</span>
+                <button className="btn btn-sm" disabled={busy} onClick={() => sim('over')}>Over</button>
+                <button className="btn btn-sm" disabled={busy} onClick={() => sim('innings')}>Innings</button>
+                <button className="btn btn-sm" disabled={busy} onClick={() => sim('match')}>Match</button>
+              </div>
+            </>
+          )}
+
+          {pickNeeded && !busy && <BowlerPicker m={m} onPick={(id) => updateLive(setBowler(m, id))} />}
+
+          <div className="commentary">
+            {commentary.length === 0 && <p className="muted small">{m.tossText}. Press Roll (or Space) to bowl.</p>}
+            {commentary.map((c, i) => (
+              <p key={i} className={i === 0 ? 'comm-latest' : ''}>{c}</p>
+            ))}
+          </div>
+        </section>
+
+        {/* Scorecard */}
+        <section className="sc-panel">
+          <InningsTabs
+            m={m}
+            value={shownIdx}
+            onChange={(i) => setViewIdx(i === curIdx ? null : i)}
+          />
+          <BattingCard m={m} idx={shownIdx} />
+          <BowlingCard m={m} idx={shownIdx} />
+        </section>
+      </div>
+
+      <div className="footer-row">
+        <button className="btn btn-ghost" onClick={() => go(live.tournamentId ? { name: 'tourHub', id: live.tournamentId } : { name: 'home' })}>
+          ← Leave (match is saved, resume any time)
+        </button>
+        <span className="muted small">Space = roll · A = auto-roll</span>
+      </div>
+    </div>
+  );
+}
+
+function BowlerPicker({ m, onPick }: { m: MatchState; onPick: (id: string) => void }) {
+  const opts = bowlerOptions(m);
+  const rows = bowlingCard(m, m.innings.length - 1);
+  return (
+    <div className="picker">
+      <div className="picker-head">
+        <b>Who bowls the next over?</b>
+        <button className="btn btn-sm" onClick={() => onPick(pickAutoBowler(m))}>Auto-pick</button>
+      </div>
+      <div className="picker-list">
+        {opts.map((o) => {
+          const r = rows.find((x) => x.playerId === o.player.id);
+          return (
+            <button
+              key={o.player.id}
+              className={`picker-item ${o.player.bowler ? 'is-bowler' : ''}`}
+              disabled={!o.eligible}
+              onClick={() => onPick(o.player.id)}
+              title={o.reason}
+            >
+              <span>{o.player.name}{o.player.bowler ? ' 🎯' : ''}</span>
+              <span className="muted small">
+                {r ? `${formatOvers(r.balls)}-${r.maidens}-${r.runs}-${r.wickets}` : '—'}
+                {o.reason ? ` · ${o.reason}` : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
