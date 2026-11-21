@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { BattingCard, BowlingCard, InningsTabs, scoreText, inningsTitle } from '../components/Scorecard';
 import { MatchCharts } from '../components/Charts';
+import { BattingCardHover, BowlingCardHover, HoverCard } from '../components/PlayerHover';
 import { db, type MatchRecord } from '../data/db';
 import { aggregate, battingAverage, formatOvers, ratio, strikeRate, type CareerBat, type CareerBowl } from '../engine/stats';
 import type { Format } from '../engine/types';
@@ -116,7 +117,37 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
       ),
     [records, scope, format],
   );
-  const agg = useMemo(() => aggregate(filtered.map((r) => r.match)), [filtered]);
+  const filteredMatches = useMemo(() => filtered.map((r) => r.match), [filtered]);
+  const agg = useMemo(() => aggregate(filteredMatches), [filteredMatches]);
+  // Player names get a hover card with their last 5 innings in the current filter.
+  const batCols = useMemo<Col<CareerBat>[]>(
+    () =>
+      BAT_COLS.map((c) =>
+        c.key !== 'name' ? c : {
+          ...c,
+          render: (r) => (
+            <HoverCard render={() => <BattingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
+              <b>{r.name}</b>
+            </HoverCard>
+          ),
+        },
+      ),
+    [filteredMatches, format],
+  );
+  const bowlCols = useMemo<Col<CareerBowl>[]>(
+    () =>
+      BOWL_COLS.map((c) =>
+        c.key !== 'name' ? c : {
+          ...c,
+          render: (r) => (
+            <HoverCard render={() => <BowlingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
+              <b>{r.name}</b>
+            </HoverCard>
+          ),
+        },
+      ),
+    [filteredMatches, format],
+  );
   const tName = (id: string | null) => (id ? tournaments.find((t) => t.id === id)?.name ?? 'Tournament' : 'Exhibition');
   const back: Screen = { name: 'stats', tournamentId: scope !== 'all' && scope !== 'exhibition' ? scope : undefined };
 
@@ -159,9 +190,9 @@ export function StatsScreen({ tournamentId }: { tournamentId?: string }) {
       ) : (
         <div className="card">
           {tab === 'bat' && (
-            <SortTable rows={agg.bat.filter((r) => r.innings > 0)} cols={BAT_COLS} initial="runs" rowKey={(r) => r.playerId} />
+            <SortTable rows={agg.bat.filter((r) => r.innings > 0)} cols={batCols} initial="runs" rowKey={(r) => r.playerId} />
           )}
-          {tab === 'bowl' && <SortTable rows={agg.bowl} cols={BOWL_COLS} initial="wkts" rowKey={(r) => r.playerId} />}
+          {tab === 'bowl' && <SortTable rows={agg.bowl} cols={bowlCols} initial="wkts" rowKey={(r) => r.playerId} />}
           {tab === 'matches' && (
             <div className="list">
               {filtered.map((r) => (

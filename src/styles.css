@@ -414,3 +414,23 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .viz-table { margin-top: 6px; }
 .viz-table summary { cursor: pointer; }
 .viz-table table { max-width: 360px; }
+
+/* ---------- Player hover cards ---------- */
+.hc-anchor { cursor: help; border-bottom: 1px dotted transparent; outline: none; }
+.hc-anchor:hover, .hc-anchor:focus-visible { border-bottom-color: var(--muted); }
+.hovercard {
+  position: fixed; z-index: 60; max-width: calc(100vw - 16px); pointer-events: none;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); padding: 10px 12px; font-size: 0.85rem; font-weight: 400;
+  white-space: normal; text-align: left; animation: hc-in 0.12s ease-out;
+}
+@keyframes hc-in { from { opacity: 0; } to { opacity: 1; } }
+.hc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.hc-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.hc-stat { display: flex; flex-direction: column; background: var(--surface-2); border-radius: 6px; padding: 4px 6px; }
+.hc-stat span { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.hc-stat b { font-variant-numeric: tabular-nums; }
+.hc-sub { font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 700; margin-bottom: 4px; }
+.hc-recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.hc-recent li { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
+.hc-empty { margin: 0 0 6px; }

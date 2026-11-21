@@ -1,6 +1,7 @@
 import { getTeam, oversLimit } from '../engine/match';
 import { battingCard, bowlingCard, formatOvers, ratio, strikeRate } from '../engine/stats';
 import type { Ball, MatchState } from '../engine/types';
+import { PlayerName } from './PlayerHover';
 
 export function ballLabel(b: Ball) {
   return b.wicket ? 'W' : b.runs === 0 ? '•' : String(b.runs);
@@ -88,7 +89,7 @@ export function BattingCard({ m, idx }: { m: MatchState; idx: number }) {
               .map((r) => (
                 <tr key={r.playerId} className={r.atCrease ? 'row-live' : r.out ? 'row-out' : ''}>
                   <td className="l name">
-                    {r.name}
+                    <PlayerName name={r.name} playerId={r.playerId} format={m.settings.format} role="bat" />
                     {r.onStrike && <span className="strike" title="On strike">*</span>}
                     <div className="show-sm muted small">{r.dismissal}</div>
                   </td>
@@ -149,7 +150,9 @@ export function BowlingCard({ m, idx }: { m: MatchState; idx: number }) {
             )}
             {rows.map((r) => (
               <tr key={r.playerId} className={r.current ? 'row-live' : ''}>
-                <td className="l name">{r.name}</td>
+                <td className="l name">
+                  <PlayerName name={r.name} playerId={r.playerId} format={m.settings.format} role="bowl" />
+                </td>
                 <td className="l balls-col">
                   <div className="chips">
                     {r.overs.map((o, oi) => (

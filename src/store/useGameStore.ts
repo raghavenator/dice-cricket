@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { db, uid, type LiveRecord } from '../data/db';
+import { db, uid, type LiveRecord, type MatchRecord } from '../data/db';
 import { PRESET_TEAMS } from '../data/presets';
 import { createMatch, simulate } from '../engine/match';
 import { createTournament, recordResult, type Structure, type Tournament } from '../engine/tournament';
@@ -47,6 +47,8 @@ interface GameState {
   teams: Team[];
   tournaments: Tournament[];
   live: LiveRecord | null;
+  /** Every completed match, oldest first (used for player tooltips). */
+  history: MatchRecord[];
   exPick: [string | null, string | null];
   prefs: Prefs;
 
@@ -78,13 +80,15 @@ export const useGame = create<GameState>((set, get) => {
   /** Write a finished match to history and update its tournament. */
   async function finalize(rec: LiveRecord) {
     if (!rec.match.result || rec.saved) return;
-    await db.matches.put({
+    const record: MatchRecord = {
       id: rec.match.id,
       tournamentId: rec.tournamentId,
       fixtureId: rec.fixtureId,
       completedAt: Date.now(),
       match: rec.match,
-    });
+    };
+    await db.matches.put(record);
+    set({ history: [...get().history.filter((r) => r.id !== record.id), record] });
     if (rec.tournamentId && rec.fixtureId) {
       const t = await db.tournaments.get(rec.tournamentId);
       const f = t?.fixtures.find((x) => x.id === rec.fixtureId);
@@ -102,6 +106,7 @@ export const useGame = create<GameState>((set, get) => {
     teams: [],
     tournaments: [],
     live: null,
+    history: [],
     exPick: [null, null],
     prefs: loadPrefs(),
 
@@ -118,7 +123,8 @@ export const useGame = create<GameState>((set, get) => {
         await db.live.put(live);
       }
       const tournaments = await db.tournaments.orderBy('createdAt').reverse().toArray();
-      set({ teams, tournaments, live, ready: true });
+      const history = await db.matches.orderBy('completedAt').toArray();
+      set({ teams, tournaments, live, history, ready: true });
     },
 
     go(screen) {
@@ -198,7 +204,10 @@ export const useGame = create<GameState>((set, get) => {
     async deleteTournament(id) {
       await db.tournaments.delete(id);
       await db.matches.where('tournamentId').equals(id).delete();
-      set({ tournaments: get().tournaments.filter((t) => t.id !== id) });
+      set({
+        tournaments: get().tournaments.filter((t) => t.id !== id),
+        history: get().history.filter((r) => r.tournamentId !== id),
+      });
     },
 
     async simFixture(tournamentId, fixtureId) {

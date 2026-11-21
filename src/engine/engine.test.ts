@@ -3,7 +3,7 @@ import { resolveRolls, rollDie } from './dice';
 import {
   applyBall, bowlerOptions, createMatch, currentInnings, maxOversPerBowler, needsBowler, setBowler, simulate,
 } from './match';
-import { aggregate, battingCard, bowlingCard } from './stats';
+import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling } from './stats';
 import { createTournament, nextFixture, pointsTable, recordResult } from './tournament';
 import { PRESET_TEAMS } from '../data/presets';
 import type { MatchSettings, MatchState, Rolls } from './types';
@@ -165,7 +165,34 @@ describe('stats & tournaments', () => {
     expect(bat.find((x) => x.playerId === A.players[0].id)?.matches).toBe(3);
   });
 
-  const runTournament = (n: number, structure: 'roundRobin' | 'roundRobinPlayoffs' | 'knockout') => {
+  it('recent performances are newest first and match the scorecards', () => {
+    const ms = [1, 2, 3, 4, 5, 6, 7].map((s) => {
+      const m = simulate(createMatch(`m${s}`, A, B, limited(10), seeded(s)), seeded(s * 11), 'match');
+      return { ...m, createdAt: s * 1000 };
+    });
+    const opener = A.players[0].id;
+    const bat = recentBatting(ms, opener, 5);
+    expect(bat).toHaveLength(5);
+    expect(bat.map((p) => p.matchId)).toEqual(['m7', 'm6', 'm5', 'm4', 'm3']);
+    const m7 = ms[6];
+    const idx = m7.innings.findIndex((i) => i.battingTeamId === A.id);
+    const row = battingCard(m7, idx).find((r) => r.playerId === opener)!;
+    expect(bat[0]).toMatchObject({ runs: row.runs, balls: row.balls, out: row.out, vs: B.short });
+
+    const bowlerId = A.players[6].id;
+    const bowl = recentBowling(ms, bowlerId, 5);
+    expect(bowl.length).toBeGreaterThan(0);
+    expect(bowl.length).toBeLessThanOrEqual(5);
+    for (const p of bowl) {
+      const m = ms.find((x) => x.id === p.matchId)!;
+      const i = m.innings.findIndex((x) => x.bowlingTeamId === A.id);
+      const r = bowlingCard(m, i).find((x) => x.playerId === bowlerId)!;
+      expect([p.wickets, p.runs]).toEqual([r.wickets, r.runs]);
+    }
+    expect(recentBatting([], opener)).toEqual([]);
+  });
+
+  const runTournament =(n: number, structure: 'roundRobin' | 'roundRobinPlayoffs' | 'knockout') => {
     const rng = seeded(n * 31);
     let t = createTournament('t', 'Cup', PRESET_TEAMS.slice(0, n).map((x) => x.id), limited(5), structure, rng);
     let f;

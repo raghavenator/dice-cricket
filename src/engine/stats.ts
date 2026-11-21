@@ -193,3 +193,57 @@ export function aggregate(matches: MatchState[]): { bat: CareerBat[]; bowl: Care
 
 export const battingAverage = (c: CareerBat) => ratio(c.runs, c.innings - c.notOuts);
 export const strikeRate = (runs: number, balls: number) => (balls > 0 ? ((runs / balls) * 100).toFixed(1) : '-');
+
+// ---------- Recent performances ----------
+
+export interface BatPerf {
+  matchId: string;
+  runs: number;
+  balls: number;
+  out: boolean;
+  vs: string;
+  date: number;
+}
+
+export interface BowlPerf {
+  matchId: string;
+  wickets: number;
+  runs: number;
+  balls: number;
+  vs: string;
+  date: number;
+}
+
+const newestFirst = (matches: MatchState[]) => [...matches].sort((a, b) => b.createdAt - a.createdAt);
+
+/** A player's last `n` innings with the bat, newest first (Test matches can give two per match). */
+export function recentBatting(matches: MatchState[], playerId: string, n = 5): BatPerf[] {
+  const out: BatPerf[] = [];
+  for (const m of newestFirst(matches)) {
+    for (let idx = m.innings.length - 1; idx >= 0; idx--) {
+      const inn = m.innings[idx];
+      if (!getTeam(m, inn.battingTeamId).players.some((p) => p.id === playerId)) continue;
+      const row = battingCard(m, idx).find((r) => r.playerId === playerId);
+      if (!row?.batted) continue;
+      out.push({ matchId: m.id, runs: row.runs, balls: row.balls, out: row.out, vs: getTeam(m, inn.bowlingTeamId).short, date: m.createdAt });
+      if (out.length >= n) return out;
+    }
+  }
+  return out;
+}
+
+/** A player's last `n` bowling innings, newest first. */
+export function recentBowling(matches: MatchState[], playerId: string, n = 5): BowlPerf[] {
+  const out: BowlPerf[] = [];
+  for (const m of newestFirst(matches)) {
+    for (let idx = m.innings.length - 1; idx >= 0; idx--) {
+      const inn = m.innings[idx];
+      if (!getTeam(m, inn.bowlingTeamId).players.some((p) => p.id === playerId)) continue;
+      const row = bowlingCard(m, idx).find((r) => r.playerId === playerId && r.balls > 0);
+      if (!row) continue;
+      out.push({ matchId: m.id, wickets: row.wickets, runs: row.runs, balls: row.balls, vs: getTeam(m, inn.battingTeamId).short, date: m.createdAt });
+      if (out.length >= n) return out;
+    }
+  }
+  return out;
+}
