@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { FullScorecard, scoreText, inningsTitle } from '../components/Scorecard';
+import { BattingCard, BowlingCard, InningsTabs, scoreText, inningsTitle } from '../components/Scorecard';
+import { MatchCharts } from '../components/Charts';
 import { db, type MatchRecord } from '../data/db';
 import { aggregate, battingAverage, formatOvers, ratio, strikeRate, type CareerBat, type CareerBowl } from '../engine/stats';
 import type { Format } from '../engine/types';
@@ -214,7 +215,10 @@ export function MatchView({ matchId, back }: { matchId: string; back: Screen }) 
             {new Date(rec.completedAt).toLocaleString()} · {rec.match.tossText}
           </p>
           <div className="result-banner"><div className="result-title">🏆 {rec.match.result?.text}</div></div>
-          <FullScorecard m={rec.match} idx={idx} onIdx={setIdx} />
+          <InningsTabs m={rec.match} value={idx} onChange={setIdx} />
+          <MatchCharts m={rec.match} idx={idx} />
+          <BattingCard m={rec.match} idx={idx} />
+          <BowlingCard m={rec.match} idx={idx} />
         </>
       )}
     </div>

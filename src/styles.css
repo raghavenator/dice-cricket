@@ -23,6 +23,11 @@
   --pip: #1b241c;
   --check: #fff1f0;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.06);
+  /* Chart series: validated categorical slots 1 (blue) & 2 (orange) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --viz-grid: #e4e8e1;
+  --viz-axis: #b8c2b9;
   color-scheme: light;
 }
 
@@ -48,6 +53,10 @@
     --die-edge: #b9b5a4;
     --check: #3a1d1d;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --viz-grid: #26322a;
+    --viz-axis: #46564b;
     color-scheme: dark;
   }
 }
@@ -325,3 +334,83 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .filters label { display: flex; align-items: center; gap: 6px; }
 .stats-table td.l { white-space: nowrap; }
+
+/* ---------- Chase line ---------- */
+.sb-chase {
+  margin-top: 8px; display: inline-block; font-size: 1.3rem; font-weight: 800;
+  background: rgba(0, 0, 0, 0.25); color: #ffe58f; padding: 4px 12px; border-radius: 8px;
+}
+.scoreboard { position: relative; overflow: hidden; }
+
+/* ---------- Big-moment highlights (4 / 6 / wicket) ---------- */
+.flash {
+  position: fixed; top: 18%; left: 50%; z-index: 50; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  transform: translateX(-50%);
+  animation: flash-pop 1.9s cubic-bezier(.2, .8, .3, 1) forwards;
+}
+.flash-title {
+  font-size: clamp(3rem, 13vw, 6.5rem); font-weight: 900; letter-spacing: 0.04em; line-height: 1;
+  color: #fff; padding: 10px 34px; border-radius: 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); text-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+}
+.flash-sub {
+  font-weight: 700; font-size: 1rem; background: var(--surface); color: var(--text);
+  padding: 4px 14px; border-radius: 999px; box-shadow: var(--shadow); white-space: nowrap; max-width: 92vw;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.flash-four .flash-title { background: var(--chip-four); }
+.flash-six .flash-title { background: var(--chip-six); }
+.flash-wicket .flash-title { background: var(--chip-w); }
+@keyframes flash-pop {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.4) rotate(-6deg); }
+  14% { opacity: 1; transform: translateX(-50%) scale(1.12) rotate(2deg); }
+  24% { transform: translateX(-50%) scale(1) rotate(0); }
+  78% { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-24px) scale(0.96); }
+}
+.sb-glow { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; animation: sb-glow 1.4s ease-out forwards; }
+.sb-glow-four { --glow: var(--chip-four); }
+.sb-glow-six { --glow: var(--chip-six); }
+.sb-glow-wicket { --glow: var(--chip-w); }
+@keyframes sb-glow {
+  0% { box-shadow: inset 0 0 0 6px var(--glow); background: color-mix(in srgb, var(--glow) 45%, transparent); }
+  100% { box-shadow: inset 0 0 0 0 var(--glow); background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: flash-fade 1.9s linear forwards; }
+  .sb-glow { animation: none; }
+}
+@keyframes flash-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------- Charts ---------- */
+.viz-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.viz-grid-2 > .viz { margin-bottom: 0; }
+.viz-wrap { margin-bottom: 14px; }
+.viz-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 10px 14px 0; }
+.viz-head h3 { margin: 0; font-size: 0.95rem; }
+.viz-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8em; color: var(--muted); }
+.viz-key { display: inline-flex; align-items: center; gap: 5px; }
+.viz-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.viz-body { position: relative; padding: 4px 4px 0; }
+.viz-body svg { display: block; touch-action: pan-y; }
+.viz-grid { stroke: var(--viz-grid); stroke-width: 1; }
+.viz-axis { stroke: var(--viz-axis); stroke-width: 1; }
+.viz-tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.viz-end { fill: var(--text); font-size: 11px; font-weight: 700; }
+.viz-target { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.viz-cross { stroke: var(--muted); stroke-width: 1; }
+.viz-ring { stroke: var(--surface); stroke-width: 2; }
+.viz-wkt { fill: var(--text); }
+.viz-axis-label { position: absolute; left: 0; right: 0; text-align: center; bottom: 2px; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.viz-tip {
+  position: absolute; top: 8px; min-width: 150px; max-width: 186px; pointer-events: none; z-index: 2;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+  padding: 6px 10px; font-size: 0.8em;
+}
+.viz-tip-title { font-weight: 700; margin-bottom: 2px; }
+.viz-tip-row { display: flex; align-items: center; gap: 6px; }
+.viz-tip-row b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.viz-table { margin-top: 6px; }
+.viz-table summary { cursor: pointer; }
+.viz-table table { max-width: 360px; }

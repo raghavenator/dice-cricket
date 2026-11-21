@@ -6,7 +6,11 @@ import {
   BALLS_PER_OVER, applyBall, bowlerOptions, currentInnings, getTeam, matchTotal, needsBowler, oversLimit,
   pickAutoBowler, setBowler, simulate, type SimUntil,
 } from '../engine/match';
-import { bowlingCard, formatOvers, ratio } from '../engine/stats';
+import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
+import { MatchCharts } from '../components/Charts';
+
+type FlashKind = 'four' | 'six' | 'wicket';
+const FLASH_TITLE: Record<FlashKind, string> = { four: 'FOUR!', six: 'SIX!', wicket: 'WICKET!' };
 import type { Ball, MatchState, Rolls } from '../engine/types';
 import { useGame, type RollSpeed } from '../store/useGameStore';
 
@@ -62,6 +66,8 @@ export function MatchScreen() {
     timers.current.push(window.setTimeout(fn, ms));
   };
 
+  const [flash, setFlash] = useState<{ id: number; kind: FlashKind; sub: string } | null>(null);
+
   const pushComment = (lines: string[]) => {
     const newestFirst = [...lines].reverse();
     setCommentary((c) => [...newestFirst, ...c].slice(0, 30));
@@ -84,6 +90,16 @@ export function MatchScreen() {
       }
       if (next.result) lines.push(`🏆 ${next.result.text}`);
       pushComment(lines);
+      if (ball.wicket || ball.runs === 4 || ball.runs === 6) {
+        const kind: FlashKind = ball.wicket ? 'wicket' : ball.runs === 6 ? 'six' : 'four';
+        const row = battingCard(next, prevInn).find((r) => r.playerId === ball.batterId);
+        const sub = row
+          ? ball.wicket
+            ? `${row.name} ${row.dismissal} · ${row.runs} (${row.balls})`
+            : `${row.name} · ${row.runs}* (${row.balls})`
+          : '';
+        setFlash((f) => ({ id: (f?.id ?? 0) + 1, kind, sub }));
+      }
       updateLive(next);
       setPhase('idle');
     },
@@ -197,12 +213,18 @@ export function MatchScreen() {
 
   // Chase / lead info
   let situation = '';
+  let chase: { main: string; rrr: string } | null = null;
   if (inn.target !== null && !inn.done) {
     const need = inn.target - inn.runs;
-    situation = `Need ${need} to win`;
+    const runsTxt = `${need} run${need === 1 ? '' : 's'} needed`;
     if (limit !== null) {
       const left = limit * BALLS_PER_OVER - inn.legalBalls;
-      situation += ` from ${left} ball${left === 1 ? '' : 's'} · RRR ${ratio(need * 6, left)}`;
+      // Show overs until it's down to the last 30 balls, then count balls.
+      const ov = formatOvers(left);
+      const leftTxt = left > 30 ? `${ov} over${ov === '1' ? '' : 's'}` : `${left} ball${left === 1 ? '' : 's'}`;
+      chase = { main: `${runsTxt} off ${leftTxt}`, rrr: `Req. RR ${ratio(need * 6, left)}` };
+    } else {
+      chase = { main: `${runsTxt} to win`, rrr: '' };
     }
   } else if (m.settings.format === 'test' && curIdx > 0 && !m.result) {
     const diff = matchTotal(m, inn.battingTeamId) - matchTotal(m, inn.bowlingTeamId);
@@ -217,7 +239,14 @@ export function MatchScreen() {
   return (
     <div className="screen match">
       {/* Scoreboard */}
+      {flash && (
+        <div key={flash.id} className={`flash flash-${flash.kind}`} aria-live="assertive">
+          <div className="flash-title">{FLASH_TITLE[flash.kind]}</div>
+          {flash.sub && <div className="flash-sub">{flash.sub}</div>}
+        </div>
+      )}
       <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
+        {flash && <span key={flash.id} className={`sb-glow sb-glow-${flash.kind}`} aria-hidden />}
         <div className="sb-main">
           <div className="sb-team">
             <span className="sb-swatch" />
@@ -233,8 +262,10 @@ export function MatchScreen() {
           </div>
           <div className="sb-sub">
             <span>RR {ratio(inn.runs * 6, inn.legalBalls)}</span>
+            {chase?.rrr && <span>{chase.rrr}</span>}
             {situation && <span className="sb-situation">{situation}</span>}
           </div>
+          {chase && <div className="sb-chase" aria-live="polite">{chase.main}</div>}
         </div>
         <div className="sb-side">
           <div className="muted small">
@@ -354,6 +385,7 @@ export function MatchScreen() {
             value={shownIdx}
             onChange={(i) => setViewIdx(i === curIdx ? null : i)}
           />
+          <MatchCharts m={m} idx={shownIdx} />
           <BattingCard m={m} idx={shownIdx} />
           <BowlingCard m={m} idx={shownIdx} />
         </section>
