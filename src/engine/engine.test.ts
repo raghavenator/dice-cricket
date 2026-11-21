@@ -3,7 +3,7 @@ import { resolveRolls, rollDie } from './dice';
 import {
   applyBall, bowlerOptions, createMatch, currentInnings, maxOversPerBowler, needsBowler, setBowler, simulate,
 } from './match';
-import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling } from './stats';
+import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling, recentForm } from './stats';
 import { createTournament, nextFixture, pointsTable, recordResult } from './tournament';
 import { PRESET_TEAMS } from '../data/presets';
 import type { MatchSettings, MatchState, Rolls } from './types';
@@ -190,6 +190,24 @@ describe('stats & tournaments', () => {
       expect([p.wickets, p.runs]).toEqual([r.wickets, r.runs]);
     }
     expect(recentBatting([], opener)).toEqual([]);
+  });
+
+  it('recent form is newest first, capped, and skips other teams', () => {
+    const [, , C] = PRESET_TEAMS;
+    const recs = [1, 2, 3, 4, 5, 6, 7].map((s) => ({
+      match: simulate(createMatch(`m${s}`, A, s === 4 ? C : B, limited(5), seeded(s)), seeded(s * 13), 'match'),
+      tournamentId: null,
+      completedAt: s * 1000,
+    }));
+    const form = recentForm(recs, B.id, 5);
+    expect(form.map((f) => f.record.match.id)).toEqual(['m7', 'm6', 'm5', 'm3', 'm2']);
+    for (const f of form) {
+      const res = f.record.match.result!;
+      const want = res.kind === 'tie' ? 'T' : res.winnerId === B.id ? 'W' : 'L';
+      expect(f.letter).toBe(want);
+    }
+    expect(recentForm(recs, C.id)).toHaveLength(1);
+    expect(recentForm(recs, PRESET_TEAMS[5].id)).toEqual([]);
   });
 
   const runTournament =(n: number, structure: 'roundRobin' | 'roundRobinPlayoffs' | 'knockout') => {

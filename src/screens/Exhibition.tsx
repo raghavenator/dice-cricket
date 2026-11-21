@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MatchupPanel } from '../components/MatchupPanel';
 import { SettingsForm, TeamCard } from '../components/SettingsForm';
 import { useGame } from '../store/useGameStore';
 
@@ -16,24 +17,20 @@ export function ExhibitionTeams() {
     else setPick([a, id]);
   };
 
-  const name = (id: string | null) => teams.find((t) => t.id === id)?.name ?? '—';
+  const team = (id: string | null) => teams.find((t) => t.id === id);
 
   return (
     <div className="screen">
       <Steps step={1} />
-      <h2>Choose two teams</h2>
-      <div className="versus">
-        <span className={a ? '' : 'muted'}>{name(a)}</span>
-        <span className="vs">vs</span>
-        <span className={b ? '' : 'muted'}>{name(b)}</span>
-      </div>
+      <h2>Choose home and away teams</h2>
+      <MatchupPanel home={team(a)} away={team(b)} onSwap={() => setPick([b, a])} />
       <div className="team-grid">
         {teams.map((t) => (
           <TeamCard
             key={t.id}
             team={t}
             selected={t.id === a || t.id === b}
-            badge={t.id === a ? 'Team 1' : t.id === b ? 'Team 2' : undefined}
+            badge={t.id === a ? 'Home' : t.id === b ? 'Away' : undefined}
             onClick={() => choose(t.id)}
           />
         ))}
@@ -73,9 +70,11 @@ export function ExhibitionSettings() {
       <Steps step={2} />
       <h2>Match settings</h2>
       <div className="versus">
+        <span className="vs">Home</span>
         <span>{ta.name}</span>
-        <span className="vs">vs</span>
+        <span className="vs">v</span>
         <span>{tb.name}</span>
+        <span className="vs">Away</span>
       </div>
       <SettingsForm value={settings} onChange={setSettings} />
       <div className="nav-row">

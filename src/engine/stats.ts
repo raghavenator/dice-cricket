@@ -247,3 +247,23 @@ export function recentBowling(matches: MatchState[], playerId: string, n = 5): B
   }
   return out;
 }
+
+export type FormLetter = 'W' | 'L' | 'T' | 'D';
+export interface PlayedRecord {
+  match: MatchState;
+  tournamentId: string | null;
+  completedAt: number;
+}
+
+/** A team's last `n` results, newest first. */
+export function recentForm<R extends PlayedRecord>(records: R[], teamId: string, n = 5): { letter: FormLetter; record: R }[] {
+  return records
+    .filter((r) => r.match.result && r.match.teams.some((t) => t.id === teamId))
+    .sort((a, b) => b.completedAt - a.completedAt)
+    .slice(0, n)
+    .map((record) => {
+      const res = record.match.result!;
+      const letter: FormLetter = res.kind === 'tie' ? 'T' : res.kind === 'draw' ? 'D' : res.winnerId === teamId ? 'W' : 'L';
+      return { letter, record };
+    });
+}

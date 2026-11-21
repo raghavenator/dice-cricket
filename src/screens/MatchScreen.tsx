@@ -56,7 +56,7 @@ export function MatchScreen() {
   const [showCheck, setShowCheck] = useState(false);
   const [commentary, setCommentary] = useState<string[]>([]);
   const [auto, setAuto] = useState(false);
-  const [scope, setScope] = useState<Scope>('over');
+  const [scope, setScope] = useState<Scope>('innings');
   const anchor = useRef({ inn: 0, over: 0 });
   const [viewIdx, setViewIdx] = useState<number | null>(null);
   const timers = useRef<number[]>([]);
