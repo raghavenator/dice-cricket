@@ -7,6 +7,7 @@ import { TournamentHub, TournamentList, TournamentNew } from './screens/Tourname
 import { TeamsScreen } from './screens/Teams';
 import { SeriesHub, SeriesList, SeriesNew } from './screens/Series';
 import { MatchView, StatsScreen } from './screens/Stats';
+import { PlayerScreen } from './screens/Player';
 
 export function App() {
   const ready = useGame((s) => s.ready);
@@ -35,7 +36,8 @@ export function App() {
       case 'seriesNew': body = <SeriesNew />; break;
       case 'seriesHub': body = <SeriesHub key={screen.id} id={screen.id} />; break;
       case 'teams': body = <TeamsScreen />; break;
-      case 'stats': body = <StatsScreen key={screen.tournamentId ?? screen.seriesId ?? 'all'} tournamentId={screen.tournamentId} seriesId={screen.seriesId} />; break;
+      case 'stats': body = <StatsScreen key={screen.tournamentId ?? screen.seriesId ?? 'all'} tournamentId={screen.tournamentId} seriesId={screen.seriesId} view={screen.view} />; break;
+      case 'player': body = <PlayerScreen key={screen.playerId + screen.scope} playerId={screen.playerId} scope={screen.scope} format={screen.format} back={screen.back} />; break;
       case 'matchView': body = <MatchView key={screen.matchId} matchId={screen.matchId} back={screen.back} />; break;
     }
   }

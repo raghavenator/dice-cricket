@@ -3,7 +3,7 @@ import { resolveRolls, rollDie } from './dice';
 import {
   applyBall, bowlerOptions, createMatch, currentInnings, maxOversPerBowler, needsBowler, setBowler, simulate,
 } from './match';
-import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling, recentForm } from './stats';
+import { aggregate, battingCard, bowlingCard, playerMatches, recentBatting, recentBowling, recentForm } from './stats';
 import { createTournament, nextFixture, pointsTable, recordResult, roundRobin } from './tournament';
 import {
   addLeg, createSeries, legLabel, legStanding, nextSeriesFixture, recordSeriesResult, seriesOutcome, type Series,
@@ -193,6 +193,38 @@ describe('stats & tournaments', () => {
       expect([p.wickets, p.runs]).toEqual([r.wickets, r.runs]);
     }
     expect(recentBatting([], opener)).toEqual([]);
+  });
+
+  it('player match log covers every appearance and sums to the career aggregate', () => {
+    const [, , C] = PRESET_TEAMS;
+    const ms = [1, 2, 3, 4, 5].map((s) => {
+      const m = simulate(createMatch(`m${s}`, A, s === 3 ? C : B, limited(10), seeded(s)), seeded(s * 17), 'match');
+      return { ...m, createdAt: s * 1000 };
+    });
+    const opener = B.players[0].id;
+    const log = playerMatches(ms, opener);
+    expect(log.map((p) => p.matchId)).toEqual(['m5', 'm4', 'm2', 'm1']);
+    expect(log.every((p) => p.vsShort === A.short && p.teamId === B.id)).toBe(true);
+    const { bat, bowl } = aggregate(ms);
+    for (const pid of [opener, A.players[6].id, A.players[10].id]) {
+      const l = playerMatches(ms, pid);
+      expect(l.flatMap((p) => p.bat).reduce((s, b) => s + b.runs, 0)).toBe(bat.find((x) => x.playerId === pid)?.runs ?? 0);
+      expect(l.flatMap((p) => p.bowl).reduce((s, b) => s + b.wickets, 0)).toBe(bowl.find((x) => x.playerId === pid)?.wickets ?? 0);
+    }
+    for (const p of log) {
+      const res = ms.find((m) => m.id === p.matchId)!.result!;
+      expect(p.result).toBe(res.kind === 'tie' ? 'T' : res.winnerId === B.id ? 'W' : 'L');
+    }
+    expect(playerMatches(ms, 'nobody')).toEqual([]);
+  });
+
+  it('player match log records both innings of a Test', () => {
+    const t = simulate(createMatch('t', A, B, { format: 'test', overs: 0, bowlerMode: 'auto' }, seeded(3)), seeded(9), 'match');
+    const opener = A.players[0].id;
+    const [p] = playerMatches([t], opener);
+    const want = t.innings.filter((i) => i.battingTeamId === A.id).length;
+    expect(p.bat).toHaveLength(want);
+    expect(want).toBeGreaterThanOrEqual(1);
   });
 
   it('recent form is newest first, capped, and skips other teams', () => {

@@ -259,15 +259,58 @@ export interface PlayedRecord {
   completedAt: number;
 }
 
+/** Result of a finished match from one team's point of view. */
+export function resultLetter(m: MatchState, teamId: string): FormLetter {
+  const res = m.result!;
+  return res.kind === 'tie' ? 'T' : res.kind === 'draw' ? 'D' : res.winnerId === teamId ? 'W' : 'L';
+}
+
 /** A team's last `n` results, newest first. */
 export function recentForm<R extends PlayedRecord>(records: R[], teamId: string, n = 5): { letter: FormLetter; record: R }[] {
   return records
     .filter((r) => r.match.result && r.match.teams.some((t) => t.id === teamId))
     .sort((a, b) => b.completedAt - a.completedAt)
     .slice(0, n)
-    .map((record) => {
-      const res = record.match.result!;
-      const letter: FormLetter = res.kind === 'tie' ? 'T' : res.kind === 'draw' ? 'D' : res.winnerId === teamId ? 'W' : 'L';
-      return { letter, record };
+    .map((record) => ({ letter: resultLetter(record.match, teamId), record }));
+}
+
+// ---------- Player match log ----------
+
+export interface PlayerMatch {
+  matchId: string;
+  date: number;
+  teamId: string;
+  team: string;
+  vs: string;
+  vsShort: string;
+  result?: FormLetter;
+  /** One entry per innings batted (Tests can have two). */
+  bat: { runs: number; balls: number; out: boolean; dismissal: string; fours: number; sixes: number }[];
+  /** One entry per innings bowled in. */
+  bowl: { balls: number; maidens: number; runs: number; wickets: number }[];
+}
+
+/** Every match the player appeared in, newest first, with their innings-by-innings figures. */
+export function playerMatches(matches: MatchState[], playerId: string): PlayerMatch[] {
+  const out: PlayerMatch[] = [];
+  for (const m of newestFirst(matches)) {
+    const mine = m.teams.find((t) => t.players.some((p) => p.id === playerId));
+    if (!mine) continue;
+    const opp = m.teams.find((t) => t.id !== mine.id)!;
+    const pm: PlayerMatch = {
+      matchId: m.id, date: m.createdAt, teamId: mine.id, team: mine.name, vs: opp.name, vsShort: opp.short,
+      result: m.result ? resultLetter(m, mine.id) : undefined, bat: [], bowl: [],
+    };
+    m.innings.forEach((inn, idx) => {
+      if (inn.battingTeamId === mine.id) {
+        const r = battingCard(m, idx).find((x) => x.playerId === playerId);
+        if (r?.batted) pm.bat.push({ runs: r.runs, balls: r.balls, out: r.out, dismissal: r.dismissal, fours: r.fours, sixes: r.sixes });
+      } else {
+        const r = bowlingCard(m, idx).find((x) => x.playerId === playerId);
+        if (r && r.balls > 0) pm.bowl.push({ balls: r.balls, maidens: r.maidens, runs: r.runs, wickets: r.wickets });
+      }
     });
+    out.push(pm);
+  }
+  return out;
 }

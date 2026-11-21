@@ -4,7 +4,7 @@ import { PRESET_TEAMS } from '../data/presets';
 import { createMatch, simulate } from '../engine/match';
 import { createTournament, recordResult, type Structure, type Tournament } from '../engine/tournament';
 import { createSeries, recordSeriesResult, type Leg, type Series } from '../engine/series';
-import type { MatchSettings, MatchState, Team } from '../engine/types';
+import type { Format, MatchSettings, MatchState, Team } from '../engine/types';
 
 export type Screen =
   | { name: 'home' }
@@ -18,8 +18,17 @@ export type Screen =
   | { name: 'seriesNew' }
   | { name: 'seriesHub'; id: string }
   | { name: 'teams' }
-  | { name: 'stats'; tournamentId?: string; seriesId?: string }
+  | { name: 'stats'; tournamentId?: string; seriesId?: string; view?: StatsView }
+  | { name: 'player'; playerId: string; scope: string; format: Format; back: Screen }
   | { name: 'matchView'; matchId: string; back: Screen };
+
+/** Filters on the Stats screen, carried through navigation so Back restores them. */
+export interface StatsView {
+  scope: string;
+  format: Format;
+  tab: 'bat' | 'bowl' | 'matches';
+  teams: string[];
+}
 
 export type RollSpeed = 'normal' | 'fast' | 'instant';
 

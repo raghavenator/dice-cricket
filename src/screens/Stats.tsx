@@ -4,8 +4,10 @@ import { MatchCharts } from '../components/Charts';
 import { BattingCardHover, BowlingCardHover, HoverCard } from '../components/PlayerHover';
 import { db, type MatchRecord } from '../data/db';
 import { aggregate, battingAverage, formatOvers, ratio, strikeRate, type CareerBat, type CareerBowl } from '../engine/stats';
+import type { Series } from '../engine/series';
+import type { Tournament } from '../engine/tournament';
 import type { Format } from '../engine/types';
-import { useGame, type Screen } from '../store/useGameStore';
+import { useGame, type Screen, type StatsView } from '../store/useGameStore';
 
 interface Col<T> {
   key: string;
@@ -165,40 +167,55 @@ const BOWL_COLS: Col<CareerBowl>[] = [
   { key: '5w', label: '5w', value: (r) => r.fiveFors, hideSm: true },
 ];
 
-export function StatsScreen({ tournamentId, seriesId }: { tournamentId?: string; seriesId?: string }) {
+/** Competition scope: 'all', 'exhibition', a tournament id, or `series:<id>`. */
+export const inScope = (r: MatchRecord, scope: string) =>
+  scope === 'all' ||
+  (scope === 'exhibition'
+    ? !r.tournamentId && !r.seriesId
+    : scope.startsWith('series:')
+      ? r.seriesId === scope.slice(7)
+      : r.tournamentId === scope);
+
+export const scopeName = (scope: string, tournaments: Tournament[], series: Series[]) =>
+  scope === 'all' ? 'All matches'
+  : scope === 'exhibition' ? 'Exhibitions'
+  : scope.startsWith('series:') ? series.find((s) => s.id === scope.slice(7))?.name ?? 'Series'
+  : tournaments.find((t) => t.id === scope)?.name ?? 'Tournament';
+
+export const recordCompName = (r: MatchRecord, tournaments: Tournament[], series: Series[]) =>
+  r.tournamentId
+    ? tournaments.find((t) => t.id === r.tournamentId)?.name ?? 'Tournament'
+    : r.seriesId
+      ? series.find((s) => s.id === r.seriesId)?.name ?? 'Series'
+      : 'Exhibition';
+
+export function StatsScreen({ tournamentId, seriesId, view }: { tournamentId?: string; seriesId?: string; view?: StatsView }) {
   const go = useGame((s) => s.go);
   const tournaments = useGame((s) => s.tournaments);
   const [records, setRecords] = useState<MatchRecord[] | null>(null);
   const allSeries = useGame((s) => s.series);
-  const [scope, setScope] = useState<string>(tournamentId ?? (seriesId ? `series:${seriesId}` : 'all'));
+  const [scope, setScope] = useState<string>(view?.scope ?? tournamentId ?? (seriesId ? `series:${seriesId}` : 'all'));
   const initialFormat: Format =
+    view?.format ??
     tournaments.find((t) => t.id === tournamentId)?.settings.format ??
     allSeries.find((s) => s.id === seriesId)?.legs[0]?.settings.format ??
     'limited';
   const [format, setFormat] = useState<Format>(initialFormat);
-  const [tab, setTab] = useState<'bat' | 'bowl' | 'matches'>('bat');
+  const [tab, setTab] = useState<'bat' | 'bowl' | 'matches'>(view?.tab ?? 'bat');
 
   useEffect(() => {
     void db.matches.orderBy('completedAt').reverse().toArray().then(setRecords);
   }, []);
 
   const filtered = useMemo(
-    () =>
-      (records ?? []).filter(
-        (r) =>
-          r.match.settings.format === format &&
-          (scope === 'all' ||
-            (scope === 'exhibition'
-              ? !r.tournamentId && !r.seriesId
-              : scope.startsWith('series:')
-                ? r.seriesId === scope.slice(7)
-                : r.tournamentId === scope)),
-      ),
+    () => (records ?? []).filter((r) => r.match.settings.format === format && inScope(r, scope)),
     [records, scope, format],
   );
   const filteredMatches = useMemo(() => filtered.map((r) => r.match), [filtered]);
   const agg = useMemo(() => aggregate(filteredMatches), [filteredMatches]);
-  const [teamSel, setTeamSel] = useState<string[]>([]);
+  const [teamSel, setTeamSel] = useState<string[]>(view?.teams ?? []);
+  const self: Screen = { name: 'stats', tournamentId, seriesId, view: { scope, format, tab, teams: teamSel } };
+  const openPlayer = (playerId: string) => go({ name: 'player', playerId, scope, format, back: self });
   const teamOpts = useMemo(() => {
     const byId = new Map<string, TeamOpt>();
     for (const m of filteredMatches) for (const t of m.teams) if (!byId.has(t.id)) byId.set(t.id, t);
@@ -208,44 +225,34 @@ export function StatsScreen({ tournamentId, seriesId }: { tournamentId?: string;
   const activeTeams = teamSel.filter((id) => teamOpts.some((o) => o.id === id));
   const byTeam = <T extends { teamId: string }>(rows: T[]) =>
     activeTeams.length ? rows.filter((r) => activeTeams.includes(r.teamId)) : rows;
-  // Player names get a hover card with their last 5 innings in the current filter.
-  const batCols = useMemo<Col<CareerBat>[]>(
-    () =>
-      BAT_COLS.map((c) =>
-        c.key !== 'name' ? c : {
-          ...c,
-          render: (r) => (
-            <HoverCard render={() => <BattingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
-              <b>{r.name}</b>
-            </HoverCard>
-          ),
-        },
-      ),
-    [filteredMatches, format],
+  // Player names open the player page; hovering shows their last 5 innings in the current filter.
+  const nameLink = (r: { name: string; playerId: string }) => (
+    <button className="link-btn" onClick={() => openPlayer(r.playerId)} title={`View ${r.name}'s profile`}>
+      {r.name}
+    </button>
   );
-  const bowlCols = useMemo<Col<CareerBowl>[]>(
-    () =>
-      BOWL_COLS.map((c) =>
-        c.key !== 'name' ? c : {
-          ...c,
-          render: (r) => (
-            <HoverCard render={() => <BowlingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
-              <b>{r.name}</b>
-            </HoverCard>
-          ),
-        },
+  const batCols: Col<CareerBat>[] = BAT_COLS.map((c) =>
+    c.key !== 'name' ? c : {
+      ...c,
+      render: (r) => (
+        <HoverCard render={() => <BattingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
+          {nameLink(r)}
+        </HoverCard>
       ),
-    [filteredMatches, format],
+    },
   );
-  const compName = (r: MatchRecord) =>
-    r.tournamentId
-      ? tournaments.find((t) => t.id === r.tournamentId)?.name ?? 'Tournament'
-      : r.seriesId
-        ? allSeries.find((s) => s.id === r.seriesId)?.name ?? 'Series'
-        : 'Exhibition';
-  const back: Screen = scope.startsWith('series:')
-    ? { name: 'stats', seriesId: scope.slice(7) }
-    : { name: 'stats', tournamentId: scope !== 'all' && scope !== 'exhibition' ? scope : undefined };
+  const bowlCols: Col<CareerBowl>[] = BOWL_COLS.map((c) =>
+    c.key !== 'name' ? c : {
+      ...c,
+      render: (r) => (
+        <HoverCard render={() => <BowlingCardHover name={r.name} playerId={r.playerId} matches={filteredMatches} format={format} summary={false} />}>
+          {nameLink(r)}
+        </HoverCard>
+      ),
+    },
+  );
+  const compName = (r: MatchRecord) => recordCompName(r, tournaments, allSeries);
+  const back = self;
 
   return (
     <div className="screen">
