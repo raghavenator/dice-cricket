@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { SettingsForm, TeamCard } from '../components/SettingsForm';
-import { nextFixture, pointsTable, STRUCTURE_LABEL, type Structure, type Tournament } from '../engine/tournament';
+import { leagueLabel, nextFixture, pointsTable, STRUCTURE_LABEL, type Structure, type Tournament } from '../engine/tournament';
 import type { MatchSettings } from '../engine/types';
 import { useGame } from '../store/useGameStore';
 import { Steps } from './Exhibition';
@@ -30,7 +30,7 @@ export function TournamentList() {
               <button className="list-main" onClick={() => go({ name: 'tourHub', id: t.id })}>
                 <b>{t.name}</b>
                 <span className="muted small">
-                  {STRUCTURE_LABEL[t.structure]} · {formatLabel(t.settings)} · {t.teamIds.length} teams
+                  {STRUCTURE_LABEL[t.structure]}{leagueLabel(t)} · {formatLabel(t.settings)} · {t.teamIds.length} teams
                 </span>
                 <span className="small">
                   {t.status === 'complete' ? `🏆 Champion: ${name(t.championId)}` : `In progress: ${played} matches played`}
@@ -66,13 +66,14 @@ export function TournamentNew() {
   const [name, setName] = useState(`Dice Cup ${count + 1}`);
   const [structure, setStructure] = useState<Structure>('roundRobinPlayoffs');
   const [settings, setSettings] = useState<MatchSettings>(prefs.lastSettings);
+  const [legs, setLegs] = useState<1 | 2>(1);
 
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
   const fixturesEstimate = () => {
     const n = picked.length;
     if (structure === 'knockout') return n - 1;
-    const rr = (n * (n - 1)) / 2;
+    const rr = ((n * (n - 1)) / 2) * legs;
     return structure === 'roundRobin' ? rr : rr + (n >= 4 ? 3 : 1);
   };
 
@@ -127,6 +128,20 @@ export function TournamentNew() {
                 About {fixturesEstimate()} matches.
               </p>
             </div>
+            {structure !== 'knockout' && (
+              <div className="field">
+                <label>League games</label>
+                <div className="seg">
+                  <button className={`seg-btn ${legs === 1 ? 'seg-on' : ''}`} onClick={() => setLegs(1)}>Once</button>
+                  <button className={`seg-btn ${legs === 2 ? 'seg-on' : ''}`} onClick={() => setLegs(2)}>Twice (home & away)</button>
+                </div>
+                <p className="hint">
+                  {legs === 1
+                    ? 'Each team plays every other team once in the league stage.'
+                    : 'Each team plays every other team twice in the league stage, once at home and once away.'}
+                </p>
+              </div>
+            )}
           </div>
           <SettingsForm value={settings} onChange={setSettings} />
           <div className="nav-row">
@@ -135,7 +150,7 @@ export function TournamentNew() {
               className="btn btn-primary"
               disabled={!name.trim()}
               onClick={async () => {
-                const id = await create(name.trim(), picked, settings, structure);
+                const id = await create(name.trim(), picked, settings, structure, legs);
                 go({ name: 'tourHub', id });
               }}
             >
@@ -199,7 +214,7 @@ export function TournamentHub({ id }: { id: string }) {
         <div>
           <h2>{t.name}</h2>
           <p className="muted small">
-            {STRUCTURE_LABEL[t.structure]} · {formatLabel(t.settings)} ·{' '}
+            {STRUCTURE_LABEL[t.structure]}{leagueLabel(t)} · {formatLabel(t.settings)} ·{' '}
             {t.settings.bowlerMode === 'manual' ? 'manual bowlers' : 'auto bowlers'}
           </p>
         </div>

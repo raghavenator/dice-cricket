@@ -43,6 +43,8 @@ export interface Tournament {
   teamIds: string[];
   settings: MatchSettings;
   structure: Structure;
+  /** League stage: play each opponent once or twice. Missing on older saves = 1. */
+  legs?: 1 | 2;
   fixtures: Fixture[];
   byes: string[];
   status: 'active' | 'complete';
@@ -61,25 +63,29 @@ function shuffle<T>(arr: T[], rng: Rng): T[] {
   return a;
 }
 
-/** Circle-method round robin: every team plays every other team once. */
-export function roundRobin(teamIds: string[]): Fixture[] {
+/** Circle-method round robin: every team plays every other team once, or twice (home and away) when `legs` is 2. */
+export function roundRobin(teamIds: string[], legs: 1 | 2 = 1): Fixture[] {
   const arr: (string | null)[] = [...teamIds];
   if (arr.length % 2) arr.push(null);
   const n = arr.length;
-  const out: Fixture[] = [];
+  const pairs: { round: number; homeId: string; awayId: string }[] = [];
   for (let r = 0; r < n - 1; r++) {
     for (let i = 0; i < n / 2; i++) {
       const a = arr[i];
       const b = arr[n - 1 - i];
       if (a && b) {
         const [h, w] = r % 2 ? [b, a] : [a, b];
-        out.push({ id: fid(), stage: 'group', round: r + 1, label: `Round ${r + 1}`, homeId: h, awayId: w });
+        pairs.push({ round: r + 1, homeId: h, awayId: w });
       }
     }
     arr.splice(1, 0, arr.pop()!);
   }
-  return out;
+  const second = legs === 2 ? pairs.map((p) => ({ round: p.round + n - 1, homeId: p.awayId, awayId: p.homeId })) : [];
+  return [...pairs, ...second].map((p): Fixture => ({ id: fid(), stage: 'group', label: `Round ${p.round}`, ...p }));
 }
+
+export const leagueLabel = (t: Pick<Tournament, 'structure' | 'legs'>) =>
+  t.structure !== 'knockout' && t.legs === 2 ? ' · double round robin' : '';
 
 const koLabel = (slots: number) =>
   slots === 2 ? 'Final' : slots === 4 ? 'Semi-final' : slots === 8 ? 'Quarter-final' : `Round of ${slots}`;
@@ -106,11 +112,12 @@ export function createTournament(
   settings: MatchSettings,
   structure: Structure,
   rng: Rng,
+  legs: 1 | 2 = 1,
 ): Tournament {
   if (teamIds.length < 2) throw new Error('Need at least 2 teams');
   const t: Tournament = {
     id, name, createdAt: Date.now(), teamIds: [...teamIds], settings: { ...settings }, structure,
-    fixtures: [], byes: [], status: 'active',
+    legs: structure === 'knockout' ? 1 : legs, fixtures: [], byes: [], status: 'active',
   };
   if (structure === 'knockout') {
     const order = shuffle(teamIds, rng);
@@ -119,7 +126,7 @@ export function createTournament(
     t.byes = order.slice(0, size - order.length);
     t.fixtures = pairUp(order.slice(t.byes.length), 1, size);
   } else {
-    t.fixtures = roundRobin(shuffle(teamIds, rng));
+    t.fixtures = roundRobin(shuffle(teamIds, rng), t.legs);
   }
   return t;
 }

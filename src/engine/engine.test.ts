@@ -4,7 +4,7 @@ import {
   applyBall, bowlerOptions, createMatch, currentInnings, maxOversPerBowler, needsBowler, setBowler, simulate,
 } from './match';
 import { aggregate, battingCard, bowlingCard, recentBatting, recentBowling, recentForm } from './stats';
-import { createTournament, nextFixture, pointsTable, recordResult } from './tournament';
+import { createTournament, nextFixture, pointsTable, recordResult, roundRobin } from './tournament';
 import {
   addLeg, createSeries, legLabel, legStanding, nextSeriesFixture, recordSeriesResult, seriesOutcome, type Series,
 } from './series';
@@ -213,9 +213,9 @@ describe('stats & tournaments', () => {
     expect(recentForm(recs, PRESET_TEAMS[5].id)).toEqual([]);
   });
 
-  const runTournament =(n: number, structure: 'roundRobin' | 'roundRobinPlayoffs' | 'knockout') => {
+  const runTournament = (n: number, structure: 'roundRobin' | 'roundRobinPlayoffs' | 'knockout', legs: 1 | 2 = 1) => {
     const rng = seeded(n * 31);
-    let t = createTournament('t', 'Cup', PRESET_TEAMS.slice(0, n).map((x) => x.id), limited(5), structure, rng);
+    let t = createTournament('t', 'Cup', PRESET_TEAMS.slice(0, n).map((x) => x.id), limited(5), structure, rng, legs);
     let f;
     let guard = 0;
     while ((f = nextFixture(t)) && guard++ < 100) {
@@ -239,6 +239,29 @@ describe('stats & tournaments', () => {
     const t = runTournament(6, 'roundRobinPlayoffs');
     expect(t.fixtures.filter((f) => f.stage === 'semi')).toHaveLength(2);
     expect(t.fixtures.filter((f) => f.stage === 'final')).toHaveLength(1);
+    expect(t.status).toBe('complete');
+  });
+
+  it('double round robin plays every pair twice, home and away', () => {
+    for (const n of [4, 5]) {
+      const ids = PRESET_TEAMS.slice(0, n).map((x) => x.id);
+      const fs = roundRobin(ids, 2);
+      expect(fs).toHaveLength(n * (n - 1));
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++)
+          if (i !== j) expect(fs.filter((f) => f.homeId === ids[i] && f.awayId === ids[j])).toHaveLength(1);
+      const rounds = n % 2 ? n : n - 1;
+      expect(Math.max(...fs.map((f) => f.round))).toBe(rounds * 2);
+    }
+    expect(roundRobin(['a', 'b', 'c', 'd'])).toHaveLength(6);
+  });
+
+  it('double round robin + playoffs completes with 6 league games each', () => {
+    const t = runTournament(4, 'roundRobinPlayoffs', 2);
+    expect(t.legs).toBe(2);
+    expect(t.fixtures.filter((f) => f.stage === 'group')).toHaveLength(12);
+    expect(pointsTable(t).every((r) => r.played === 6)).toBe(true);
+    expect(t.fixtures.filter((f) => f.stage === 'semi')).toHaveLength(2);
     expect(t.status).toBe('complete');
   });
 

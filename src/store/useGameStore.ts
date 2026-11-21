@@ -70,7 +70,7 @@ interface GameState {
   updateLive(m: MatchState): void;
   closeLive(): void;
 
-  newTournament(name: string, teamIds: string[], settings: MatchSettings, structure: Structure): Promise<string>;
+  newTournament(name: string, teamIds: string[], settings: MatchSettings, structure: Structure, legs?: 1 | 2): Promise<string>;
   deleteTournament(id: string): Promise<void>;
   simFixture(tournamentId: string, fixtureId: string): Promise<void>;
 
@@ -233,8 +233,8 @@ export const useGame = create<GameState>((set, get) => {
       void db.live.delete('live');
     },
 
-    async newTournament(name, teamIds, settings, structure) {
-      const t = createTournament(uid('t'), name, teamIds, settings, structure, Math.random);
+    async newTournament(name, teamIds, settings, structure, legs = 1) {
+      const t = createTournament(uid('t'), name, teamIds, settings, structure, Math.random, legs);
       await db.tournaments.put(t);
       set({ tournaments: [t, ...get().tournaments] });
       return t.id;
