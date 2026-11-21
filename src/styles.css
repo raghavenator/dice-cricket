@@ -562,3 +562,9 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .sb-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .sb-caption { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .sb-text { font-size: 1rem; line-height: 1.35; }
+.multi-step {
+  font: inherit; font-size: 1.15em; line-height: 1; color: var(--text); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; width: 32px; align-self: stretch; cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.multi-step:hover:not(:disabled) { border-color: var(--accent); }
+.multi-step:disabled { opacity: 0.4; cursor: not-allowed; }

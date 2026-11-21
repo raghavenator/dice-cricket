@@ -79,6 +79,11 @@ function TeamFilter({ options, value, onChange }: { options: TeamOpt[]; value: s
     };
   }, [open]);
   const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+  const idx = value.length === 1 ? options.findIndex((o) => o.id === value[0]) : -1;
+  const canStep = idx >= 0 && options.length > 1;
+  const neighbour = (d: number) => options[(idx + d + options.length) % options.length];
+  const stepTitle = (d: number, dir: string) =>
+    canStep ? `${dir}: ${neighbour(d).name}` : 'Select a single team to step through teams';
   const label =
     value.length === 0 ? 'All teams'
     : value.length === 1 ? options.find((o) => o.id === value[0])?.name ?? '1 team'
@@ -86,8 +91,26 @@ function TeamFilter({ options, value, onChange }: { options: TeamOpt[]; value: s
   return (
     <div className="multi" ref={ref}>
       Teams{' '}
+      <button
+        className="multi-step"
+        aria-label="Previous team"
+        title={stepTitle(-1, 'Previous')}
+        disabled={!canStep}
+        onClick={() => onChange([neighbour(-1).id])}
+      >
+        ‹
+      </button>
       <button className="multi-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {label} ▾
+      </button>
+      <button
+        className="multi-step"
+        aria-label="Next team"
+        title={stepTitle(1, 'Next')}
+        disabled={!canStep}
+        onClick={() => onChange([neighbour(1).id])}
+      >
+        ›
       </button>
       {open && (
         <div className="multi-pop" role="listbox" aria-multiselectable>
