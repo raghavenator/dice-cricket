@@ -18,6 +18,7 @@ export type Screen =
   | { name: 'seriesNew' }
   | { name: 'seriesHub'; id: string }
   | { name: 'teams' }
+  | { name: 'backup' }
   | { name: 'stats'; tournamentId?: string; seriesId?: string; view?: StatsView }
   | { name: 'player'; playerId: string; scope: string; format: Format; back: Screen }
   | { name: 'matchView'; matchId: string; back: Screen };

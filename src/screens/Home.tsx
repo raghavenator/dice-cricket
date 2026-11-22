@@ -63,6 +63,11 @@ export function Home() {
           <span className="mode-title">Stats & History</span>
           <span className="mode-desc">Batting and bowling leaderboards and past scorecards.</span>
         </button>
+        <button className="mode" onClick={() => go({ name: 'backup' })}>
+          <span className="mode-icon">💾</span>
+          <span className="mode-title">Backup & Restore</span>
+          <span className="mode-desc">Export your teams, matches and stats to a file, or import a backup.</span>
+        </button>
       </div>
     </div>
   );

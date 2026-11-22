@@ -8,6 +8,7 @@ import { TeamsScreen } from './screens/Teams';
 import { SeriesHub, SeriesList, SeriesNew } from './screens/Series';
 import { MatchView, StatsScreen } from './screens/Stats';
 import { PlayerScreen } from './screens/Player';
+import { BackupScreen } from './screens/Backup';
 
 export function App() {
   const ready = useGame((s) => s.ready);
@@ -36,6 +37,7 @@ export function App() {
       case 'seriesNew': body = <SeriesNew />; break;
       case 'seriesHub': body = <SeriesHub key={screen.id} id={screen.id} />; break;
       case 'teams': body = <TeamsScreen />; break;
+      case 'backup': body = <BackupScreen />; break;
       case 'stats': body = <StatsScreen key={screen.tournamentId ?? screen.seriesId ?? 'all'} tournamentId={screen.tournamentId} seriesId={screen.seriesId} view={screen.view} />; break;
       case 'player': body = <PlayerScreen key={screen.playerId + screen.scope} playerId={screen.playerId} scope={screen.scope} format={screen.format} back={screen.back} />; break;
       case 'matchView': body = <MatchView key={screen.matchId} matchId={screen.matchId} back={screen.back} />; break;
@@ -54,6 +56,7 @@ export function App() {
             <button onClick={() => go({ name: 'seriesList' })}>Series</button>
             <button onClick={() => go({ name: 'teams' })}>Teams</button>
             <button onClick={() => go({ name: 'stats' })}>Stats</button>
+            <button onClick={() => go({ name: 'backup' })}>Backup</button>
           </nav>
         )}
       </header>

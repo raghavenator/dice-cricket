@@ -335,6 +335,11 @@ export function StatsScreen({ tournamentId, seriesId, view }: { tournamentId?: s
         </div>
       )}
 
+      <p className="muted small backup-hint">
+        Your stats are saved only in this browser.{' '}
+        <button className="link-btn" onClick={() => go({ name: 'backup' })}>Back up to a file</button>
+      </p>
+
       <div className="nav-row">
         <button className="btn btn-ghost" onClick={() => go({ name: 'home' })}>← Home</button>
       </div>

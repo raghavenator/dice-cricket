@@ -598,3 +598,13 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
   .pl-crest { width: 52px; height: 52px; font-size: 0.9rem; }
   .pl-stats { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); }
 }
+
+/* Backup & Restore */
+.backup-body { padding: 12px 14px; margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.backup-body p { margin: 0; }
+.backup-pending { width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.backup-msg { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border); overflow-wrap: anywhere; }
+.backup-error { background: var(--check); color: var(--chip-w); }
+.backup-ok { background: var(--qualify); color: var(--win); }
+.backup-hint { margin-top: 18px; }
+.backup-hint .link-btn { color: var(--accent); }
