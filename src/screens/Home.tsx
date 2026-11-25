@@ -53,6 +53,13 @@ export function Home() {
             {activeSeries > 0 && <b> {activeSeries} in progress.</b>}
           </span>
         </button>
+        {import.meta.env.VITE_ONLINE_URL && (
+          <button className="mode" onClick={() => window.location.assign('./online.html')}>
+            <span className="mode-icon">🌐</span>
+            <span className="mode-title">Online 1v1</span>
+            <span className="mode-desc">Play a friend on another computer.</span>
+          </button>
+        )}
         <button className="mode" onClick={() => go({ name: 'teams' })}>
           <span className="mode-icon">👥</span>
           <span className="mode-title">Teams</span>
