@@ -1,2 +1,52 @@
 /* Styles for the online page only. The main game never loads this file. */
-.on-link { text-decoration: none; }
+.on-link { text-decoration: none; color: inherit; }
+.topbar .on-link { color: #fff; }
+.on-badge { background: rgba(255, 255, 255, 0.16); border-radius: 999px; padding: 2px 10px; font-size: 0.85em; font-weight: 700; }
+.on-narrow { max-width: 760px; }
+.on-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.on-pad { padding: 14px 16px; }
+.on-center { justify-content: center; }
+.on-error { color: var(--chip-w); font-weight: 600; }
+
+.on-code-input { text-transform: uppercase; letter-spacing: 0.15em; font-weight: 700; }
+.on-code-input::placeholder { font-weight: 400; opacity: 0.5; }
+.on-invite { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.on-code { font-size: 2.2rem; font-weight: 800; letter-spacing: 0.18em; font-variant-numeric: tabular-nums; }
+
+.on-team .team-card { width: 100%; }
+.on-seat { display: flex; flex-direction: column; gap: 4px; }
+.on-ready { color: var(--win); font-weight: 700; }
+.on-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--chip-w); margin-right: 2px; }
+.on-here { background: var(--win); }
+.on-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+
+.on-lineup { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 14px; margin-top: 16px; align-items: start; }
+@media (max-width: 800px) { .on-lineup { grid-template-columns: minmax(0, 1fr); } }
+.on-player { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.on-plan { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.on-plan li { display: flex; align-items: center; gap: 8px; }
+.on-plan .pos { width: 24px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.on-plan select { flex: 1; min-width: 0; }
+
+.on-ready-bar {
+  position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  margin-top: 16px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+}
+
+.on-toss { text-align: center; }
+.on-coin { font-size: 4rem; }
+.on-count { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.on-players { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.on-turn {
+  display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.on-mine { background: var(--live); border-color: #d4a72c; font-weight: 700; }
+.on-suggested { border-color: var(--accent); font-weight: 700; }
+
+.on-banner { background: var(--chip-w); color: #fff; text-align: center; padding: 6px 12px; font-weight: 600; }
+.on-toast {
+  position: fixed; left: 50%; bottom: 80px; transform: translateX(-50%); max-width: calc(100vw - 32px);
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; box-shadow: var(--shadow); z-index: 50;
+}
