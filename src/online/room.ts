@@ -1,9 +1,9 @@
 import { rollDice } from '../engine/dice';
 import { BALLS_PER_OVER, bowlerOptions, currentInnings, needsBowler, pickAutoBowler } from '../engine/match';
 import type { MatchState, Rng, Team } from '../engine/types';
-import { applyEvent, digest, type MatchEvent } from './events';
+import { applyEvent, digest, type Auto, type MatchEvent } from './events';
 import { applyLineup, defaultLineup, lineupProblem, onlineSettings, type Lineup } from './lineup';
-import type { Clock, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn } from './protocol';
+import type { AutoSettings, Clock, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn } from './protocol';
 import { createOnlineMatch, nextBatterOptions, ownedId, splitOwnedId } from './rules';
 import { DEFAULT_OVERS, OnlineError } from './validate';
 
@@ -14,12 +14,14 @@ const SEC = 1000;
 const MIN = 60 * SEC;
 
 export const TOSS_MS = 20 * SEC;
-export const BOWLER_MS = 20 * SEC;
-export const BATTER_MS = 10 * SEC;
-export const ROLL_MS = 10 * SEC;
+/** Picking a bowler or the next batter. */
+export const PICK_MS = 5 * SEC;
+export const ROLL_MS = 2 * SEC;
 /** Long enough for the dice animation: one die, or two when there is a wicket check. */
 export const BALL_GAP_MS = 1300;
 export const CHECK_GAP_MS = 2700;
+/** Extra time before the first ball of an innings, so that automatic play does not rush past the new screen. */
+export const INNINGS_GAP_MS = 2 * SEC;
 /** After someone returns, they get at least this long on a paused turn. */
 export const RESUME_MS = 5 * SEC;
 export const CLAIM_MS = 90 * SEC;
@@ -39,7 +41,7 @@ export interface SeatState {
   team: Team | null;
   lineup: Lineup | null;
   ready: boolean;
-  auto: boolean;
+  auto: AutoSettings;
   wantsRematch: boolean;
   left: boolean;
 }
@@ -105,7 +107,7 @@ export interface FinishedMatch {
 
 const newSeat = ({ ownerId, nickname }: Who): SeatState => ({
   ownerId, nickname, connected: false, awaySince: null, team: null, lineup: null,
-  ready: false, auto: false, wantsRematch: false, left: false,
+  ready: false, auto: { roll: true, batter: true, bowler: true }, wantsRematch: false, left: false,
 });
 
 export function createRoom(code: string, host: Who, now: number): RoomState {
@@ -247,6 +249,18 @@ function close(s: RoomState, now: number) {
   s.remaining = null;
 }
 
+/** Whether the player whose turn it is has left this kind of move to the game. */
+function isAuto(s: RoomState, turn: Turn): boolean {
+  const { auto } = s[turn.seat]!;
+  return turn.kind === 'roll' ? auto.roll : turn.kind === 'batter' ? auto.batter : turn.kind === 'bowler' && auto.bowler;
+}
+
+function turnMs(s: RoomState, turn: Turn): number {
+  if (isAuto(s, turn)) return 0;
+  if (turn.kind === 'roll') return ROLL_MS;
+  return turn.kind === 'batter' || turn.kind === 'bowler' ? PICK_MS : TOSS_MS;
+}
+
 /** Start the clock for whatever is now being waited for. */
 function armClock(s: RoomState, now: number) {
   s.deadline = null;
@@ -254,12 +268,7 @@ function armClock(s: RoomState, now: number) {
   const turn = currentTurn(s);
   if (!turn) return;
   const from = s.phase === 'playing' ? Math.max(now, s.nextBallAt) : now;
-  const ms =
-    turn.kind === 'roll' ? (s[turn.seat]!.auto ? 0 : ROLL_MS)
-    : turn.kind === 'batter' ? BATTER_MS
-    : turn.kind === 'bowler' ? BOWLER_MS
-    : TOSS_MS;
-  s.deadline = from + ms;
+  s.deadline = from + turnMs(s, turn);
 }
 
 /** Stop the clock while someone is away, and restart it when both are here. */
@@ -282,8 +291,6 @@ function finish(s: RoomState, end: MatchEnd, now: number) {
   s.batterPending = false;
   s.deadline = null;
   s.remaining = null;
-  s.host.auto = false;
-  s.guest!.auto = false;
 }
 
 /** Apply a match event and number it. */
@@ -299,7 +306,8 @@ function emit(s: RoomState, out: SeqEvent[], event: MatchEvent) {
   out.push({ seq: s.seq, event, digest: digest(next) });
 }
 
-function doRoll(s: RoomState, out: SeqEvent[], { now, rng }: Ctx, auto: boolean) {
+function doRoll(s: RoomState, out: SeqEvent[], { now, rng }: Ctx, auto?: Auto) {
+  const before = s.match!.innings.length;
   const rolls = rollDice(rng);
   emit(s, out, { type: 'ball', rolls, ...(auto ? { auto } : {}) });
   s.nextBallAt = now + (rolls.roll2 === undefined ? BALL_GAP_MS : CHECK_GAP_MS);
@@ -307,17 +315,18 @@ function doRoll(s: RoomState, out: SeqEvent[], { now, rng }: Ctx, auto: boolean)
     finish(s, { kind: 'played' }, now);
     return;
   }
+  if (s.match!.innings.length > before) s.nextBallAt += INNINGS_GAP_MS;
   // With one player left there is nothing to choose.
   s.batterPending = nextBatterOptions(s.match!).length > 1;
   armClock(s, now);
 }
 
-function doBowler(s: RoomState, out: SeqEvent[], playerId: string, now: number, auto: boolean) {
+function doBowler(s: RoomState, out: SeqEvent[], playerId: string, now: number, auto?: Auto) {
   emit(s, out, { type: 'bowler', playerId, ...(auto ? { auto } : {}) });
   armClock(s, now);
 }
 
-function doBatter(s: RoomState, out: SeqEvent[], playerId: string, now: number, auto: boolean) {
+function doBatter(s: RoomState, out: SeqEvent[], playerId: string, now: number, auto?: Auto) {
   emit(s, out, { type: 'batter', playerId, ...(auto ? { auto } : {}) });
   s.batterPending = false;
   armClock(s, now);
@@ -340,7 +349,7 @@ function doTossChoice(s: RoomState, choice: 'bat' | 'bowl', { now }: Ctx) {
     id, side(s.host), side(s.guest!), onlineSettings(s.overs), { winnerId: s[toss.winner!]!.ownerId, choice }, now,
   );
   s.seq = 0;
-  s.nextBallAt = now;
+  s.nextBallAt = now + INNINGS_GAP_MS;
   s.batterPending = false;
   setPhase(s, 'playing', now);
   armClock(s, now);
@@ -360,6 +369,33 @@ function dropGuest(s: RoomState, now: number) {
   s.deadline = null;
   s.remaining = null;
   setPhase(s, 'waiting', now);
+}
+
+/** Make the current move for a player who left it to the game or ran out of time. Says what to send. */
+function playTurn(s: RoomState, events: SeqEvent[], ctx: Ctx): Step['send'] {
+  const { now, rng } = ctx;
+  const turn = currentTurn(s)!;
+  const why: Auto = isAuto(s, turn) ? 'setting' : 'timeout';
+  switch (turn.kind) {
+    case 'tossCall':
+      doTossCall(s, rng() < 0.5 ? 'heads' : 'tails', ctx);
+      return 'room';
+    case 'tossChoice':
+      doTossChoice(s, rng() < 0.5 ? 'bat' : 'bowl', ctx);
+      return 'snapshot';
+    case 'bowler': {
+      const seat = s[turn.seat]!;
+      doBowler(s, events, suggestBowler(s.match!, seat.ownerId, seat.lineup), now, why);
+      break;
+    }
+    case 'batter':
+      doBatter(s, events, nextBatterOptions(s.match!)[0].id, now, why);
+      break;
+    case 'roll':
+      doRoll(s, events, ctx, why);
+      break;
+  }
+  return s.phase === 'finished' ? 'snapshot' : 'none';
 }
 
 // ---------- The four ways a room changes ----------
@@ -488,25 +524,28 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       return done('snapshot');
     case 'chooseBowler':
       myTurn('bowler');
-      doBowler(s, events, a.playerId, now, false);
+      doBowler(s, events, a.playerId, now);
       return moved();
     case 'chooseBatter':
       myTurn('batter');
-      doBatter(s, events, a.playerId, now, false);
+      doBatter(s, events, a.playerId, now);
       return moved();
     case 'roll':
       myTurn('roll');
       if (now < s.nextBallAt) throw new OnlineError('Wait for the last ball to finish');
-      doRoll(s, events, ctx, false);
+      doRoll(s, events, ctx);
       return moved();
     case 'setAuto': {
-      if (s.phase !== 'playing') throw new OnlineError('There is no match in progress');
-      if (me.auto === a.on) return done('none');
-      me.auto = a.on;
+      if (me.auto[a.what] === a.on) return done('none');
+      me.auto[a.what] = a.on;
       const turn = currentTurn(s);
-      if (turn?.kind === 'roll' && turn.seat === id) {
-        if (isPaused(s)) s.remaining = a.on ? 0 : ROLL_MS;
-        else armClock(s, now);
+      if (turn?.seat === id && turn.kind === a.what) {
+        if (isPaused(s)) s.remaining = turnMs(s, turn);
+        else {
+          armClock(s, now);
+          // Done here and now, so that switching it on and straight off again cannot win more time.
+          if (a.on && s.deadline! <= now) return done(playTurn(s, events, ctx) === 'snapshot' ? 'snapshot' : 'room');
+        }
       }
       return done('room');
     }
@@ -553,7 +592,7 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
 
 /** Time has passed: play any overdue turn for whoever ran out of time, and close unused rooms. */
 export function tick(s0: RoomState, ctx: Ctx): Step {
-  const { now, rng } = ctx;
+  const { now } = ctx;
   const closing = closesAt(s0);
   if (closing !== null && closing <= now) {
     const s = structuredClone(s0);
@@ -564,25 +603,5 @@ export function tick(s0: RoomState, ctx: Ctx): Step {
 
   const s = structuredClone(s0);
   const events: SeqEvent[] = [];
-  const turn = currentTurn(s)!;
-  switch (turn.kind) {
-    case 'tossCall':
-      doTossCall(s, rng() < 0.5 ? 'heads' : 'tails', ctx);
-      return { state: s, events, send: 'room' };
-    case 'tossChoice':
-      doTossChoice(s, rng() < 0.5 ? 'bat' : 'bowl', ctx);
-      return { state: s, events, send: 'snapshot' };
-    case 'bowler': {
-      const seat = s[turn.seat]!;
-      doBowler(s, events, suggestBowler(s.match!, seat.ownerId, seat.lineup), now, true);
-      break;
-    }
-    case 'batter':
-      doBatter(s, events, nextBatterOptions(s.match!)[0].id, now, true);
-      break;
-    case 'roll':
-      doRoll(s, events, ctx, true);
-      break;
-  }
-  return { state: s, events, send: s.phase === 'finished' ? 'snapshot' : 'none' };
+  return { state: s, events, send: playTurn(s, events, ctx) };
 }

@@ -43,6 +43,13 @@
   background: var(--surface-2); border: 1px solid var(--border);
 }
 .on-mine { background: var(--live); border-color: #d4a72c; font-weight: 700; }
+.on-autos { display: flex; gap: 6px; flex-wrap: wrap; }
+.on-autos .btn { flex: 1; }
+.on-autos .btn-sm { padding: 5px 6px; }
+.on-explain { gap: 10px; }
+.on-explain .btn { display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 220px; font-weight: 500; }
+.on-picking { align-items: center; font-weight: 700; }
+.on-picking .on-count { font-size: 1.5rem; line-height: 1; }
 .on-suggested { border-color: var(--accent); font-weight: 700; }
 
 .on-banner { background: var(--chip-w); color: #fff; text-align: center; padding: 6px 12px; font-weight: 600; }

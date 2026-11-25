@@ -112,9 +112,9 @@ async function toPlay(overs: number) {
   return { host, guest, code: body.code };
 }
 
-/** Both use auto-roll; bowlers and batters are chosen as soon as they are asked for. */
+/** Both use auto-roll (the default); bowlers and batters are chosen as soon as they are asked for. */
 async function playOn(players: Player[], stop: () => boolean) {
-  for (const p of players) p.send({ t: 'setAuto', on: true });
+  for (const p of players) p.send({ t: 'setAuto', what: 'roll', on: true });
   const asked = new Map<Player, number>();
   const end = Date.now() + 240_000;
   while (!stop()) {

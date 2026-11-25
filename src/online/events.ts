@@ -2,11 +2,14 @@ import { applyBall, currentInnings, getTeam, setBowler } from '../engine/match';
 import type { MatchState, Rolls } from '../engine/types';
 import { chooseNextBatter } from './rules';
 
+/** Who made a move when the player did not: their own auto setting, or the clock. */
+export type Auto = 'setting' | 'timeout';
+
 /** Everything that can change a match once it has started. */
 export type MatchEvent =
-  | { type: 'ball'; rolls: Rolls; auto?: boolean }
-  | { type: 'bowler'; playerId: string; auto?: boolean }
-  | { type: 'batter'; playerId: string; auto?: boolean }
+  | { type: 'ball'; rolls: Rolls; auto?: Auto }
+  | { type: 'bowler'; playerId: string; auto?: Auto }
+  | { type: 'batter'; playerId: string; auto?: Auto }
   /** The losing side's team id. */
   | { type: 'forfeit'; teamId: string };
 

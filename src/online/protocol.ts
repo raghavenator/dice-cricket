@@ -4,7 +4,7 @@ import { parseLineup, type Lineup } from './lineup';
 import { OnlineError, asObject, parseId, parseNickname, parseSettings, parseTeam } from './validate';
 
 /** Raise whenever messages, or the engine rules behind them, change. Old tabs are told to refresh. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 
@@ -26,6 +26,13 @@ export function normalizeCode(input: string): string | null {
 export type SeatId = 'host' | 'guest';
 export type Phase = 'waiting' | 'setup' | 'toss' | 'playing' | 'finished' | 'closed';
 export type TurnKind = 'tossCall' | 'tossChoice' | 'bowler' | 'batter' | 'roll';
+
+/** What the game does for a player without asking. */
+export interface AutoSettings {
+  roll: boolean;
+  batter: boolean;
+  bowler: boolean;
+}
 
 export interface Turn {
   seat: SeatId;
@@ -63,7 +70,7 @@ export interface SeatView {
   nickname: string;
   connected: boolean;
   ready: boolean;
-  auto: boolean;
+  auto: AutoSettings;
   wantsRematch: boolean;
   left: boolean;
   /** Only what the opponent may see before the match. */
@@ -104,7 +111,7 @@ export type ClientMessage =
   | { t: 'chooseBowler'; playerId: string }
   | { t: 'chooseBatter'; playerId: string }
   | { t: 'roll' }
-  | { t: 'setAuto'; on: boolean }
+  | { t: 'setAuto'; what: keyof AutoSettings; on: boolean }
   | { t: 'claimWin' }
   | { t: 'rematch' };
 
@@ -180,7 +187,7 @@ export function parseClientMessage(raw: string): ClientMessage {
       return { t: 'chooseBatter', playerId: parseOwnedId(o.playerId) };
     case 'setAuto':
       if (typeof o.on !== 'boolean') throw new OnlineError('Message is not valid');
-      return { t: 'setAuto', on: o.on };
+      return { t: 'setAuto', what: pick(o.what, 'roll', 'batter', 'bowler'), on: o.on };
     default:
       throw new OnlineError('Message is not valid');
   }

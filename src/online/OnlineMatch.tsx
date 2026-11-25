@@ -7,9 +7,10 @@ import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
 import type { Ball, MatchState } from '../engine/types';
 import { goHome } from './OnlineApp';
 import { Presence } from './OnlineRoom';
-import type { MatchEvent } from './events';
+import { AutoToggles } from './AutoToggles';
+import type { Auto, MatchEvent } from './events';
 import type { RoomView } from './protocol';
-import { suggestBowler } from './room';
+import { PICK_MS, ROLL_MS, suggestBowler } from './room';
 import { nextBatterOptions } from './rules';
 import { Countdown, secondsLeft, useServerNow } from './time';
 import { useOnline } from './useOnlineStore';
@@ -35,9 +36,11 @@ function describe(m: MatchState, b: Ball): string {
   return `${pre}wicket check… ${b.roll2} — OUT! ${how}`;
 }
 
+const autoNote = (a?: Auto) => (a === 'timeout' ? ' (time ran out)' : '');
+
 function commentaryFor(before: MatchState, after: MatchState, e: MatchEvent): string[] {
-  if (e.type === 'bowler') return [`${nameOf(after, e.playerId)} to bowl${e.auto ? ' (time ran out)' : ''}`];
-  if (e.type === 'batter') return [`${nameOf(after, e.playerId)} comes in${e.auto ? ' (time ran out)' : ''}`];
+  if (e.type === 'bowler') return [`${nameOf(after, e.playerId)} to bowl${autoNote(e.auto)}`];
+  if (e.type === 'batter') return [`${nameOf(after, e.playerId)} comes in${autoNote(e.auto)}`];
   if (e.type === 'forfeit') return [`🏆 ${after.result?.text}`];
   const i = before.innings.length - 1;
   const inn = after.innings[i];
@@ -126,6 +129,9 @@ export function OnlineMatch() {
   const live = view.phase === 'playing' && !m.result;
   const turn = live && !busy ? clock.turn : null;
   const mine = turn?.seat === view.you;
+  // Picks are quick, so the list takes the place of the roll buttons.
+  const picking =
+    mine && !clock.paused && ((turn?.kind === 'bowler' && !me.auto.bowler) || (turn?.kind === 'batter' && !me.auto.batter));
   // Block a second click until the server has answered the first.
   const [asked, setAsked] = useState<{ seq: number; at: number; toast?: number } | null>(null);
   const waiting = asked !== null && asked.seq === shownSeq && asked.toast === toast?.id && Date.now() - asked.at < 3000;
@@ -136,7 +142,7 @@ export function OnlineMatch() {
     },
     [send, shownSeq, toast?.id],
   );
-  const canRoll = mine && turn?.kind === 'roll' && !clock.paused && status === 'open' && !waiting && now >= clock.nextBallAt;
+  const canRoll = mine && turn?.kind === 'roll' && !me.auto.roll && !clock.paused && status === 'open' && !waiting && now >= clock.nextBallAt;
   const rollRef = useRef(() => {});
   rollRef.current = () => {
     if (canRoll) ask({ t: 'roll' });
@@ -226,7 +232,7 @@ export function OnlineMatch() {
 
       <div className="on-players small">
         <span><Presence seat={me} /> {me.nickname} (you)</span>
-        <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto ? ' · auto-rolling' : ''}</span>
+        <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto.roll ? ' · auto roll on' : ''}</span>
       </div>
 
       {m.result && !busy && <ResultBanner view={view} m={m} />}
@@ -249,28 +255,24 @@ export function OnlineMatch() {
 
           {live && (
             <>
-              <TurnBanner view={view} busy={busy} now={now} />
+              <TurnBanner view={view} busy={busy} />
               {clock.paused && clock.claimAt !== null && (
                 <button className="btn" disabled={now < clock.claimAt} onClick={() => ask({ t: 'claimWin' })}>
                   {now < clock.claimAt ? `Claim the win in ${secondsLeft(clock.claimAt, now)}s` : 'Claim the win'}
                 </button>
               )}
-              {batting && (
-                <>
-                  <button className="btn btn-primary btn-roll" disabled={!canRoll} onClick={() => rollRef.current()} title="Space">
-                    {busy ? 'Rolling…' : '🎲 Roll'}
-                  </button>
-                  <button className={`btn ${me.auto ? 'btn-on' : ''}`} onClick={() => send({ t: 'setAuto', on: !me.auto })}>
-                    {me.auto ? '⏸ Stop auto-roll' : '▶ Auto-roll'}
-                  </button>
-                </>
+              {batting && !picking && (
+                <button className="btn btn-primary btn-roll" disabled={!canRoll} onClick={() => rollRef.current()} title="Space">
+                  {me.auto.roll ? 'Auto roll is on' : busy ? 'Rolling…' : '🎲 Roll'}
+                </button>
               )}
-              {mine && !clock.paused && turn?.kind === 'bowler' && (
+              {picking && turn?.kind === 'bowler' && (
                 <BowlerPicker m={m} suggested={suggestBowler(m, me.ownerId, view.lineup)} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBowler', playerId })} />
               )}
-              {mine && !clock.paused && turn?.kind === 'batter' && (
+              {picking && turn?.kind === 'batter' && (
                 <BatterPicker m={m} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBatter', playerId })} />
               )}
+              <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} />
             </>
           )}
 
@@ -292,13 +294,13 @@ export function OnlineMatch() {
 
       <div className="footer-row">
         <button className="btn btn-ghost" onClick={leave}>{live ? 'Leave (forfeit)' : '← Online home'}</button>
-        {batting && live && <span className="muted small">Space = roll</span>}
+        {batting && live && !me.auto.roll && <span className="muted small">Space = roll</span>}
       </div>
     </div>
   );
 }
 
-function TurnBanner({ view, busy, now }: { view: RoomView; busy: boolean; now: number }) {
+function TurnBanner({ view, busy }: { view: RoomView; busy: boolean }) {
   const clock = useOnline((s) => s.clock)!;
   const status = useOnline((s) => s.status);
   const opponent = view.you === 'host' ? view.guest! : view.host;
@@ -306,18 +308,21 @@ function TurnBanner({ view, busy, now }: { view: RoomView; busy: boolean; now: n
   if (clock.paused) return <div className="on-turn">Paused. Waiting for {opponent.nickname} to reconnect…</div>;
   if (busy || !clock.turn) return <div className="on-turn">&nbsp;</div>;
   const mine = clock.turn.seat === view.you;
+  const { kind } = clock.turn;
+  const { auto } = mine ? (view.you === 'host' ? view.host : view.guest!) : opponent;
+  // Left to the game, so it is about to happen: nothing to say and nothing to count.
+  if ((kind === 'roll' || kind === 'batter' || kind === 'bowler') && auto[kind]) return <div className="on-turn">&nbsp;</div>;
   const doing: Record<string, [string, string]> = {
-    bowler: ['Choose your bowler', 'is choosing a bowler'],
-    batter: ['Choose your next batter', 'is choosing the next batter'],
-    roll: ['Your roll', 'to roll'],
+    bowler: ['Pick your bowler', 'Other player is picking a bowler'],
+    batter: ['Pick your next batter', 'Other player is picking the next batter'],
+    roll: ['Your roll', `${opponent.nickname} to roll`],
   };
-  const [me, them] = doing[clock.turn.kind] ?? ['', ''];
-  // No countdown during auto-roll, where the next ball is always about to happen.
-  const showTime = clock.deadline !== null && clock.deadline - now < 60_000 && clock.deadline > clock.nextBallAt;
+  const [me, them] = doing[kind] ?? ['', ''];
+  const picking = kind !== 'roll';
   return (
-    <div className={`on-turn ${mine ? 'on-mine' : ''}`} aria-live="polite">
-      <span>{mine ? me : `${opponent.nickname} ${them}`}</span>
-      {showTime && <Countdown to={clock.deadline} />}
+    <div className={`on-turn ${mine ? 'on-mine' : ''} ${picking ? 'on-picking' : ''}`}>
+      <span aria-live="polite">{mine ? me : them}</span>
+      <Countdown to={clock.deadline} max={(picking ? PICK_MS : ROLL_MS) / 1000} />
     </div>
   );
 }

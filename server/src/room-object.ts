@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { parseClientMessage, type ServerMessage } from '../../src/online/protocol';
+import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from '../../src/online/protocol';
 import {
   act, clockFor, connect, createRoom, deletesAt, disconnect, nextWake, seatOf, tick, viewFor,
   type Ctx, type RoomState, type Step, type Who,
@@ -8,6 +8,8 @@ import { OnlineError } from '../../src/online/validate';
 import { ownerIdFor, secureRandom } from './identity';
 import type { Env } from './index';
 
+/** Rooms saved by an older version may have a different shape, so they are left to expire. */
+const ROOM_KEY = `room-v${PROTOCOL_VERSION}`;
 const MAX_SOCKETS = 12;
 /** Browsers ping every 5 seconds. One that has been silent this long has gone, even if nobody said so. */
 const STALE_MS = 35_000;
@@ -33,7 +35,7 @@ export class Room extends DurableObject<Env> {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     void ctx.blockConcurrencyWhile(async () => {
-      this.state = (await ctx.storage.get<RoomState>('room')) ?? null;
+      this.state = (await ctx.storage.get<RoomState>(ROOM_KEY)) ?? null;
       this.alarmAt = await ctx.storage.getAlarm();
       // After a restart, sockets may be gone without anyone having been told.
       for (const seat of this.state ? [this.state.host, this.state.guest] : []) {
@@ -120,6 +122,10 @@ export class Room extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     this.alarmAt = null;
+    if (!this.state) {
+      await this.ctx.storage.deleteAll();
+      return;
+    }
     const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       const seen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? this.attachment(ws).openedAt;
@@ -166,7 +172,7 @@ export class Room extends DurableObject<Env> {
       return;
     }
     // Writes are not awaited: the runtime holds outgoing messages back until they are safely stored.
-    if (changed) void this.ctx.storage.put('room', step.state);
+    if (changed) void this.ctx.storage.put(ROOM_KEY, step.state);
     const wake = nextWake(step.state);
     if (wake !== this.alarmAt) {
       this.alarmAt = wake;

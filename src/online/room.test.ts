@@ -6,7 +6,7 @@ import { applyEvent, digest } from './events';
 import { autoPlan, defaultLineup } from './lineup';
 import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseClientMessage, type RoomAction, type SeatId } from './protocol';
 import {
-  BALL_GAP_MS, BATTER_MS, BOWLER_MS, CHECK_GAP_MS, CLAIM_MS, IDLE_MS, KEEP_FINISHED_MS, RESUME_MS, ROLL_MS, TOSS_MS,
+  BALL_GAP_MS, CHECK_GAP_MS, CLAIM_MS, IDLE_MS, INNINGS_GAP_MS, KEEP_FINISHED_MS, PICK_MS, RESUME_MS, ROLL_MS, TOSS_MS,
   act, connect, createRoom, currentTurn, deletesAt, disconnect, finishedMatch, nextWake, tick, viewFor,
   type RoomState, type Step,
 } from './room';
@@ -89,9 +89,12 @@ class Sim {
     return this.tick();
   }
 
+  /** Everything starts on auto, but most tests make their own moves. */
   toSetup(host: Team = hawks, guest: Team = rhinos) {
     this.connect('host');
     this.connect('guest');
+    for (const seat of ['host', 'guest'] as const)
+      for (const what of ['roll', 'batter', 'bowler'] as const) this.act(seat, { t: 'setAuto', what, on: false });
     this.act('host', { t: 'setTeam', team: host });
     this.act('guest', { t: 'setTeam', team: guest });
     return this;
@@ -178,7 +181,7 @@ describe('messages', () => {
   it('rejects everything else', () => {
     const bad = [
       '', 'null', '[]', '{', '"roll"', '{}', '{"t":"win"}', '{"t":"__proto__"}', '{"t":"setSettings","overs":500}',
-      '{"t":"callToss","call":"edge"}', '{"t":"chooseInnings"}', '{"t":"setAuto","on":1}', '{"t":"chooseBowler","playerId":"a"}',
+      '{"t":"callToss","call":"edge"}', '{"t":"chooseInnings"}', '{"t":"setAuto","what":"roll","on":1}', '{"t":"setAuto","what":"win","on":true}', '{"t":"setAuto","on":true}', '{"t":"chooseBowler","playerId":"a"}',
       '{"t":"chooseBowler","playerId":"a/b/c"}', '{"t":"chooseBatter","playerId":{}}',
       JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token: 'short', nickname: 'Raj' }),
       JSON.stringify({ t: 'roll', pad: 'x'.repeat(MAX_MESSAGE_BYTES) }),
@@ -428,6 +431,7 @@ describe('playing', () => {
     s.fails('guest', { t: 'roll' });
     s.fails('guest', { t: 'chooseBowler', playerId: pick });
     s.fails('host', { t: 'chooseBatter', playerId: s.state.match!.teams[0].players[4].id });
+    s.now = s.state.nextBallAt;
     s.act('host', { t: 'roll' });
     s.fails('host', { t: 'rematch' });
     s.fails('host', { t: 'claimWin' });
@@ -498,7 +502,6 @@ describe('playing', () => {
       kinds.add(f.match.result!.kind);
       expect(nextWake(s.state)).toBe(s.state.phaseAt + KEEP_FINISHED_MS);
       s.fails('host', { t: 'roll' });
-      s.fails('host', { t: 'setAuto', on: true });
     }
     expect(kinds.has('win')).toBe(true);
   });
@@ -518,6 +521,21 @@ describe('playing', () => {
 });
 
 describe('clocks', () => {
+  it('gives five seconds to pick, and both players the same countdown', () => {
+    const s = new Sim().toPlay();
+    const same = () => {
+      const [h, g] = [s.idle('host').clock, s.idle('guest').clock];
+      expect(h).toEqual(g);
+      return h.deadline! - Math.max(s.now, h.nextBallAt);
+    };
+    expect(currentTurn(s.state)!.kind).toBe('bowler');
+    expect(same()).toBe(5000);
+    s.bowlerPick();
+    s.roll(5, 4);
+    expect(currentTurn(s.state)!.kind).toBe('batter');
+    expect(same()).toBe(5000);
+  });
+
   it('chooses the planned bowler when time runs out', () => {
     const s = new Sim().toSetup();
     const l = defaultLineup(rhinos);
@@ -529,11 +547,11 @@ describe('clocks', () => {
     const w = s.state.toss!.winner!;
     s.act(w, { t: 'chooseInnings', choice: w === 'host' ? 'bat' : 'bowl' });
     const bowling = () => currentInnings(s.state.match!).bowlerId;
-    s.wait(BOWLER_MS - 1);
+    s.wait(INNINGS_GAP_MS + PICK_MS - 1);
     expect(bowling()).toBeNull();
     s.wait(1);
     expect(bowling()).toBe(`GGG/${plan[0]}`);
-    expect(s.sent[s.sent.length - 1].events[0].event).toMatchObject({ type: 'bowler', auto: true });
+    expect(s.sent[s.sent.length - 1].events[0].event).toMatchObject({ type: 'bowler', auto: 'timeout' });
     for (let i = 0; i < 6; i++) s.roll(2);
     // The captain goes off plan and uses the next planned bowler early, so over 3 falls back to a legal choice.
     s.act('guest', { t: 'chooseBowler', playerId: `GGG/${plan[2]}` });
@@ -547,14 +565,14 @@ describe('clocks', () => {
   it('rolls, and sends in the next batter, when time runs out', () => {
     const s = new Sim().toPlay();
     s.bowlerPick();
-    s.wait(ROLL_MS - 1);
+    s.wait(INNINGS_GAP_MS + ROLL_MS - 1);
     expect(s.state.match!.innings[0].balls).toHaveLength(0);
     s.rng = dice(5, 4);
     s.wait(1);
     expect(s.state.match!.innings[0].wickets).toBe(1);
     const third = s.state.match!.teams[0].players[2].id;
-    expect(s.state.deadline).toBe(s.now + CHECK_GAP_MS + BATTER_MS);
-    s.wait(CHECK_GAP_MS + BATTER_MS);
+    expect(s.state.deadline).toBe(s.now + CHECK_GAP_MS + PICK_MS);
+    s.wait(CHECK_GAP_MS + PICK_MS);
     expect(currentTurn(s.state)!.kind).toBe('roll');
     expect(s.state.match!.teams[0].players[2].id).toBe(third);
   });
@@ -565,18 +583,18 @@ describe('clocks', () => {
     expect(s.state.deadline).toBe(s.now + BALL_GAP_MS + ROLL_MS);
   });
 
-  it('auto-rolls as soon as each ball is done, and only for the captain who asked', () => {
+  it('gives two seconds to roll', () => {
     const s = new Sim().toPlay();
-    s.act('guest', { t: 'setAuto', on: true });
-    s.bowlerPick();
-    expect(s.state.deadline).toBe(s.now + ROLL_MS);
-    s.act('host', { t: 'setAuto', on: true });
-    expect(s.state.deadline).toBe(s.now);
-    s.rng = dice(2, 1, 3);
-    s.tick();
-    expect(s.state.deadline).toBe(s.now + BALL_GAP_MS);
-    s.act('host', { t: 'setAuto', on: false });
-    expect(s.state.deadline).toBe(s.now + BALL_GAP_MS + ROLL_MS);
+    s.roll(2);
+    expect(s.state.deadline! - s.state.nextBallAt).toBe(2000);
+  });
+
+  it('leaves a breather at the start of each innings', () => {
+    const s = new Sim().toPlay(1);
+    expect(s.state.nextBallAt).toBe(s.now + INNINGS_GAP_MS);
+    for (let i = 0; i < 6; i++) s.roll(2);
+    expect(s.state.match!.innings).toHaveLength(2);
+    expect(s.state.nextBallAt).toBe(s.now + BALL_GAP_MS + INNINGS_GAP_MS);
   });
 
   it('ignores early and repeated ticks', () => {
@@ -584,7 +602,8 @@ describe('clocks', () => {
     const before = s.state;
     s.tick();
     expect(s.state).toBe(before);
-    s.wait(BOWLER_MS);
+    s.now = s.state.deadline!;
+    s.tick();
     const { seq } = s.state;
     s.tick();
     expect(s.state.seq).toBe(seq);
@@ -598,25 +617,145 @@ describe('clocks', () => {
   });
 });
 
+describe('auto settings', () => {
+  it('all start on', () => {
+    const s = new Sim();
+    s.connect('host');
+    s.connect('guest');
+    for (const seat of [s.state.host, s.state.guest!]) expect(seat.auto).toEqual({ roll: true, batter: true, bowler: true });
+  });
+
+  it('can be changed before the match, without losing readiness, and last through it and a rematch', () => {
+    const s = new Sim().toSetup();
+    s.act('guest', { t: 'ready' });
+    s.act('guest', { t: 'setAuto', what: 'bowler', on: true });
+    expect(s.state.guest!.ready).toBe(true);
+    expect(s.idle('host').guest!.auto.bowler).toBe(true);
+    s.act('host', { t: 'setSettings', overs: 1 });
+    s.act('host', { t: 'ready' });
+    s.act('guest', { t: 'ready' });
+    s.act('guest', { t: 'callToss', call: 'heads' });
+    s.act(s.state.toss!.winner!, { t: 'chooseInnings', choice: 'bat' });
+    s.playOut();
+    s.act('host', { t: 'rematch' });
+    s.act('guest', { t: 'rematch' });
+    expect(s.state.guest!.auto).toEqual({ roll: false, batter: false, bowler: true });
+  });
+
+  it('roll as soon as each ball is done, and only for the captain who asked', () => {
+    const s = new Sim().toPlay();
+    s.act('guest', { t: 'setAuto', what: 'roll', on: true });
+    s.bowlerPick();
+    expect(s.state.deadline).toBe(s.state.nextBallAt + ROLL_MS);
+    s.act('host', { t: 'setAuto', what: 'roll', on: true });
+    expect(s.state.deadline).toBe(s.state.nextBallAt);
+    s.rng = dice(2, 1, 3);
+    s.now = s.state.deadline!;
+    expect(s.tick().events[0].event).toMatchObject({ type: 'ball', auto: 'setting' });
+    expect(s.state.deadline).toBe(s.now + BALL_GAP_MS);
+    s.act('host', { t: 'setAuto', what: 'roll', on: false });
+    expect(s.state.deadline).toBe(s.now + BALL_GAP_MS + ROLL_MS);
+  });
+
+  it('pick the bowler from the plan, and the next batter in order, without waiting', () => {
+    const s = new Sim().toSetup();
+    const l = defaultLineup(rhinos);
+    const plan = autoPlan(l.bowlers, 5)!.reverse();
+    s.act('guest', { t: 'setLineup', lineup: { ...l, bowlingPlan: plan } });
+    s.act('guest', { t: 'setAuto', what: 'bowler', on: true });
+    s.act('host', { t: 'setAuto', what: 'batter', on: true });
+    s.act('host', { t: 'ready' });
+    s.act('guest', { t: 'ready' });
+    s.act('guest', { t: 'callToss', call: 'heads' });
+    const w = s.state.toss!.winner!;
+    s.act(w, { t: 'chooseInnings', choice: w === 'host' ? 'bat' : 'bowl' });
+    expect(s.state.deadline).toBe(s.state.nextBallAt);
+    s.now = s.state.deadline!;
+    expect(s.tick().events[0].event).toEqual({ type: 'bowler', playerId: `GGG/${plan[0]}`, auto: 'setting' });
+    s.roll(5, 4);
+    const third = s.state.match!.teams[0].players[2].id;
+    expect(s.state.deadline).toBe(s.state.nextBallAt);
+    s.now = s.state.deadline!;
+    expect(s.tick().events[0].event).toEqual({ type: 'batter', playerId: third, auto: 'setting' });
+    expect(currentTurn(s.state)!.kind).toBe('roll');
+  });
+
+  it('can be switched on or off in the middle of a pick', () => {
+    const s = new Sim().toPlay();
+    s.now = s.state.nextBallAt + 1000;
+    // Someone else's setting, or a different kind of move, changes nothing.
+    const { deadline } = s.state;
+    s.now += 500;
+    s.act('host', { t: 'setAuto', what: 'bowler', on: true });
+    s.act('guest', { t: 'setAuto', what: 'roll', on: true });
+    s.act('guest', { t: 'setAuto', what: 'bowler', on: false });
+    expect(s.state.deadline).toBe(deadline);
+    // Switching it on picks at once, so on-and-off cannot be used to stall.
+    const step = s.act('guest', { t: 'setAuto', what: 'bowler', on: true });
+    expect(step.events[0].event).toMatchObject({ type: 'bowler', auto: 'setting' });
+    s.act('guest', { t: 'setAuto', what: 'bowler', on: false });
+    expect(currentTurn(s.state)).toEqual({ seat: 'host', kind: 'roll' });
+  });
+
+  it('cannot be used to stall before the dice settle either', () => {
+    const s = new Sim().toPlay();
+    const end = s.state.deadline!;
+    for (let i = 0; i < 50; i++) {
+      s.now += 10;
+      for (const on of [true, false]) s.act('guest', { t: 'setAuto', what: 'bowler', on });
+    }
+    expect(s.state.deadline).toBe(end);
+  });
+
+  it('wait while someone is away', () => {
+    const s = new Sim().toPlay();
+    s.disconnect('host');
+    s.act('guest', { t: 'setAuto', what: 'bowler', on: true });
+    expect(s.state).toMatchObject({ deadline: null, remaining: 0 });
+    s.wait(30_000);
+    expect(s.state.seq).toBe(0);
+    s.connect('host');
+    expect(s.state.deadline).toBe(s.now + RESUME_MS);
+  });
+
+  it('can play a whole match on their own', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const s = new Sim(seed).toPlay(3);
+      for (const seat of ['host', 'guest'] as const)
+        for (const what of ['roll', 'batter', 'bowler'] as const) s.act(seat, { t: 'setAuto', what, on: true });
+      const start = s.now;
+      let guard = 0;
+      while (s.state.phase === 'playing' && guard++ < 500) {
+        s.now = nextWake(s.state)!;
+        s.tick();
+      }
+      expect(s.state.phase).toBe('finished');
+      expect(s.client).toEqual(s.state.match);
+      const balls = s.state.match!.innings.reduce((n, i) => n + i.legalBalls, 0);
+      expect(s.now - start).toBeLessThan(balls * CHECK_GAP_MS + 3 * INNINGS_GAP_MS);
+    }
+  });
+});
+
 describe('disconnects', () => {
   it('pauses the clock and blocks moves until both are back', () => {
     const s = new Sim().toPlay();
     s.bowlerPick();
-    s.now += 3000;
+    s.now = s.state.nextBallAt + 500;
     s.disconnect('guest');
-    expect(s.state).toMatchObject({ deadline: null, remaining: ROLL_MS - 3000 });
+    expect(s.state).toMatchObject({ deadline: null, remaining: ROLL_MS - 500 });
     expect(s.idle('host').clock).toMatchObject({ paused: true, deadline: null });
     s.fails('host', { t: 'roll' }, /reconnect/);
     s.wait(60_000);
     expect(s.state.match!.innings[0].balls).toHaveLength(0);
     s.connect('guest');
-    expect(s.state).toMatchObject({ deadline: s.now + ROLL_MS - 3000, remaining: null });
+    expect(s.state).toMatchObject({ deadline: s.now + RESUME_MS, remaining: null });
     s.act('host', { t: 'roll' });
   });
 
   it('gives a returning player a moment', () => {
     const s = new Sim().toPlay();
-    s.now += BOWLER_MS - 100;
+    s.now += PICK_MS - 100;
     s.disconnect('guest');
     s.now += 1000;
     s.connect('guest');
@@ -721,7 +860,7 @@ describe('random play', () => {
           { t: 'ready' }, { t: 'ready' }, { t: 'ready' }, { t: 'unready' }, { t: 'setTeam', team: any([hawks, rhinos]) },
           { t: 'setSettings', overs: 1 + Math.floor(r() * 3) }, { t: 'callToss', call: 'heads' },
           { t: 'chooseInnings', choice: any(['bat', 'bowl']) }, { t: 'chooseBowler', playerId: any(players).id },
-          { t: 'chooseBatter', playerId: any(players).id }, { t: 'roll' }, { t: 'roll' }, { t: 'setAuto', on: r() < 0.5 },
+          { t: 'chooseBatter', playerId: any(players).id }, { t: 'roll' }, { t: 'roll' }, { t: 'setAuto', what: any(['roll', 'batter', 'bowler']), on: r() < 0.5 },
           { t: 'claimWin' }, { t: 'rematch' },
           ...(r() < 0.02 ? [{ t: 'leave' as const }, { t: 'removeGuest' as const }] : []),
         ];

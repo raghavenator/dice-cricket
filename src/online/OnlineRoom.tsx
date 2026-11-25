@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TeamCard } from '../components/SettingsForm';
+import { AutoToggles } from './AutoToggles';
 import { LineupEditor } from './LineupEditor';
 import { goHome, inviteLink } from './OnlineApp';
 import { OnlineMatch } from './OnlineMatch';
@@ -255,6 +256,14 @@ function Setup({ view }: { view: RoomView }) {
           onChange={changeLineup}
           onProblem={setProblem}
         />
+      )}
+
+      {view.team && (
+        <div className="card on-pad">
+          <h3>During the match</h3>
+          <AutoToggles auto={me.auto} show={['batter', 'bowler']} explain />
+          <p className="hint">If off, you get 5 seconds to pick each time. You can switch these during the match too.</p>
+        </div>
       )}
 
       <div className="on-ready-bar">

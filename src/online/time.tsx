@@ -14,7 +14,8 @@ export function useServerNow(): number {
 
 export const secondsLeft = (deadline: number, now: number): number => Math.max(0, Math.ceil((deadline - now) / 1000));
 
-export function Countdown({ to }: { to: number | null }) {
+/** `max` hides the moment before a turn really starts, while the dice settle. */
+export function Countdown({ to, max = Infinity }: { to: number | null; max?: number }) {
   const now = useServerNow();
-  return to === null ? null : <span className="on-count">{secondsLeft(to, now)}s</span>;
+  return to === null ? null : <span className="on-count">{Math.min(max, secondsLeft(to, now))}s</span>;
 }
