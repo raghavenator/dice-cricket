@@ -1,15 +1,17 @@
 import { DurableObject } from 'cloudflare:workers';
-import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from '../../src/online/protocol';
+import { parseClientMessage, type FinishedMatch, type RoomResults, type ServerMessage, type Who } from '../../src/online/protocol';
 import {
-  act, clockFor, connect, createRoom, deletesAt, disconnect, nextWake, seatOf, tick, viewFor,
-  type Ctx, type RoomState, type Step, type Who,
+  KEEP_FINISHED_MS, STATE_VERSION, act, clockFor, connect, createRoom, deletesAt, disconnect, finishedMatch, isLive,
+  nextWake, seatOf, tick, viewFor, type Ctx, type RoomState, type Step,
 } from '../../src/online/room';
 import { OnlineError } from '../../src/online/validate';
 import { ownerIdFor, secureRandom } from './identity';
 import type { Env } from './index';
 
-/** Rooms saved by an older version may have a different shape, so they are left to expire. */
-const ROOM_KEY = `room-v${PROTOCOL_VERSION}`;
+const ROOM_KEY = `room-v${STATE_VERSION}`;
+/** Finished matches are kept apart from the room, so that a rematch or closing the room does not lose them. */
+const RESULT_PREFIX = 'result:';
+const MAX_RESULTS = 20;
 const MAX_SOCKETS = 12;
 /** Browsers ping every 5 seconds. One that has been silent this long has gone, even if nobody said so. */
 const STALE_MS = 35_000;
@@ -29,6 +31,8 @@ const ctxNow = (): Ctx => ({ now: Date.now(), rng: secureRandom });
 export class Room extends DurableObject<Env> {
   private state: RoomState | null = null;
   private alarmAt: number | null = null;
+  /** Results being kept: match id and when it finished, oldest first. */
+  private results = new Map<string, number>();
   private budgets = new Map<WebSocket, { tokens: number; at: number }>();
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -37,6 +41,9 @@ export class Room extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       this.state = (await ctx.storage.get<RoomState>(ROOM_KEY)) ?? null;
       this.alarmAt = await ctx.storage.getAlarm();
+      const kept = [...(await ctx.storage.list<FinishedMatch>({ prefix: RESULT_PREFIX })).values()];
+      kept.sort((a, b) => a.completedAt - b.completedAt);
+      for (const r of kept) this.results.set(r.match.id, r.completedAt);
       // After a restart, sockets may be gone without anyone having been told.
       for (const seat of this.state ? [this.state.host, this.state.guest] : []) {
         if (this.state && seat?.connected && !this.socketsOf(seat.ownerId).length)
@@ -47,9 +54,19 @@ export class Room extends DurableObject<Env> {
 
   /** Called by the Worker. False when the code is already in use. */
   async create(code: string, host: Who): Promise<boolean> {
-    if (this.state) return false;
+    if (this.state || this.results.size) return false;
     this.publish({ state: createRoom(code, host, Date.now()), events: [], send: 'none' });
     return true;
+  }
+
+  /** Called by the Worker: what this player may have missed. */
+  async missed(ownerId: string): Promise<RoomResults> {
+    const kept = [...(await this.ctx.storage.list<FinishedMatch>({ prefix: RESULT_PREFIX })).values()];
+    return {
+      ownerId,
+      live: this.state !== null && isLive(this.state) && seatOf(this.state, ownerId) !== null,
+      results: kept.filter((r) => r.host.ownerId === ownerId || r.guest.ownerId === ownerId),
+    };
   }
 
   async fetch(): Promise<Response> {
@@ -122,11 +139,12 @@ export class Room extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     this.alarmAt = null;
+    const now = Date.now();
+    for (const [id, at] of this.results) if (at + KEEP_FINISHED_MS <= now) this.dropResult(id);
     if (!this.state) {
-      await this.ctx.storage.deleteAll();
+      this.rest();
       return;
     }
-    const now = Date.now();
     for (const ws of this.ctx.getWebSockets()) {
       const seen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? this.attachment(ws).openedAt;
       if (now - seen > STALE_MS) {
@@ -144,6 +162,13 @@ export class Room extends DurableObject<Env> {
     const changed = step.state !== this.state;
     this.state = step.state;
     const now = Date.now();
+    const result = finishedMatch(step.state);
+    if (result && !this.results.has(result.match.id)) {
+      void this.ctx.storage.put(RESULT_PREFIX + result.match.id, result);
+      this.results.set(result.match.id, result.completedAt);
+      const [oldest] = this.results.keys();
+      if (this.results.size > MAX_RESULTS) this.dropResult(oldest);
+    }
     const due = deletesAt(step.state);
     const over = due !== null && due <= now;
 
@@ -166,18 +191,34 @@ export class Room extends DurableObject<Env> {
 
     if (over) {
       this.state = null;
-      this.alarmAt = null;
-      void this.ctx.storage.deleteAlarm();
-      void this.ctx.storage.deleteAll();
+      void this.ctx.storage.delete(ROOM_KEY);
+      this.rest();
       return;
     }
     // Writes are not awaited: the runtime holds outgoing messages back until they are safely stored.
     if (changed) void this.ctx.storage.put(ROOM_KEY, step.state);
-    const wake = nextWake(step.state);
-    if (wake !== this.alarmAt) {
-      this.alarmAt = wake;
-      void (wake === null ? this.ctx.storage.deleteAlarm() : this.ctx.storage.setAlarm(wake));
-    }
+    this.wakeAt(nextWake(step.state));
+  }
+
+  /** The room itself has gone. Keep only results still to be collected, if any. */
+  private rest(): void {
+    this.wakeAt(null);
+    if (this.results.size === 0) void this.ctx.storage.deleteAll();
+  }
+
+  /** Set the alarm for this time, or for the first result to expire if that is sooner. */
+  private wakeAt(time: number | null): void {
+    const expiry = this.results.size ? Math.min(...this.results.values()) + KEEP_FINISHED_MS : null;
+    const times = [time, expiry].filter((t): t is number => t !== null);
+    const wake = times.length ? Math.min(...times) : null;
+    if (wake === this.alarmAt) return;
+    this.alarmAt = wake;
+    void (wake === null ? this.ctx.storage.deleteAlarm() : this.ctx.storage.setAlarm(wake));
+  }
+
+  private dropResult(id: string): void {
+    this.results.delete(id);
+    void this.ctx.storage.delete(RESULT_PREFIX + id);
   }
 
   private attachment(ws: WebSocket): Attachment {

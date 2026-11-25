@@ -180,8 +180,7 @@ export function OnlineMatch() {
 
   const leave = () => {
     if (live && !confirm('Leave the match? Your opponent wins by forfeit.')) return;
-    send({ t: 'leave' });
-    goHome();
+    void useOnline.getState().leave().then(goHome);
   };
 
   return (
@@ -330,6 +329,7 @@ function TurnBanner({ view, busy }: { view: RoomView; busy: boolean }) {
 function ResultBanner({ view, m }: { view: RoomView; m: MatchState }) {
   const send = useOnline((s) => s.send);
   const fatal = useOnline((s) => s.fatal);
+  const saved = useOnline((s) => s.saved);
   const me = view.you === 'host' ? view.host : view.guest!;
   const opponent = view.you === 'host' ? view.guest! : view.host;
   const won = m.result?.winnerId?.startsWith(`${me.ownerId}/`);
@@ -346,7 +346,8 @@ function ResultBanner({ view, m }: { view: RoomView; m: MatchState }) {
           {m.result?.kind === 'tie' ? '🤝' : won ? '🏆' : '🏏'} {m.result?.text}
         </div>
         <div className="muted small">
-          {m.result?.kind === 'tie' ? 'It was a tie.' : won ? 'You won!' : 'You lost.'} {note}
+          {m.result?.kind === 'tie' ? 'It was a tie.' : won ? 'You won!' : 'You lost.'} {note}{' '}
+          {saved === 'yes' ? 'Saved to your online matches.' : saved === 'failed' ? 'Could not be saved in this browser.' : 'Saving…'}
         </div>
       </div>
       <button

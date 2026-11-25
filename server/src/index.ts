@@ -39,7 +39,8 @@ function allowedOrigin(req: Request, env: Env): string | null {
   }
 }
 
-async function createRoom(req: Request, env: Env): Promise<string> {
+/** The JSON body of a request from a player, and their public id. */
+async function readPlayer(req: Request): Promise<{ o: Record<string, unknown>; ownerId: string }> {
   if (Number(req.headers.get('Content-Length') ?? 0) > MAX_MESSAGE_BYTES) throw new OnlineError('Message is too big');
   const raw = await req.text();
   if (raw.length > MAX_MESSAGE_BYTES) throw new OnlineError('Message is too big');
@@ -51,8 +52,12 @@ async function createRoom(req: Request, env: Env): Promise<string> {
   }
   const o = asObject(json, 'Message');
   if (o.v !== PROTOCOL_VERSION) throw new OnlineError('The game has been updated. Please refresh the page.');
+  return { o, ownerId: await ownerIdFor(parseToken(o.token)) };
+}
+
+async function createRoom(req: Request, env: Env): Promise<string> {
+  const { o, ownerId } = await readPlayer(req);
   const nickname = parseNickname(o.nickname);
-  const ownerId = await ownerIdFor(parseToken(o.token));
   for (let i = 0; i < 5; i++) {
     const code = randomCode();
     if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code, { ownerId, nickname })) return code;
@@ -70,7 +75,8 @@ export default {
     if (!origin) return reply(403, { error: 'This page may not use the game server' });
     const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
 
-    if (pathname === '/rooms' && req.method === 'OPTIONS') {
+    const results = /^\/rooms\/([^/]+)\/results$/.exec(pathname);
+    if ((pathname === '/rooms' || results) && req.method === 'OPTIONS') {
       headers['Access-Control-Allow-Methods'] = 'POST';
       headers['Access-Control-Allow-Headers'] = 'Content-Type';
       return new Response(null, { status: 204, headers });
@@ -84,6 +90,20 @@ export default {
         if (e instanceof OnlineError) return reply(400, { error: e.message });
         console.error(e);
         return reply(500, { error: 'Could not create a room. Try again.' });
+      }
+    }
+    if (results && req.method === 'POST') {
+      const code = normalizeCode(results[1]);
+      if (!code) return reply(404, { error: 'Room not found' });
+      const { success } = await env.JOIN_LIMIT.limit({ key: ip });
+      if (!success) return reply(429, { error: 'Too many attempts. Try again in a minute.' });
+      try {
+        const { ownerId } = await readPlayer(req);
+        return reply(200, await env.ROOMS.get(env.ROOMS.idFromName(code)).missed(ownerId));
+      } catch (e) {
+        if (e instanceof OnlineError) return reply(400, { error: e.message });
+        console.error(e);
+        return reply(500, { error: 'Something went wrong' });
       }
     }
     const ws = /^\/rooms\/([^/]+)\/ws$/.exec(pathname);

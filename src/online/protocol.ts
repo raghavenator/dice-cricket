@@ -4,7 +4,7 @@ import { parseLineup, type Lineup } from './lineup';
 import { OnlineError, asObject, parseId, parseNickname, parseSettings, parseTeam } from './validate';
 
 /** Raise whenever messages, or the engine rules behind them, change. Old tabs are told to refresh. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 
@@ -65,6 +65,29 @@ export interface Clock {
   claimAt: number | null;
 }
 
+export interface Who {
+  ownerId: string;
+  nickname: string;
+}
+
+/** A finished match, as the server keeps it for collection and each browser records it. */
+export interface FinishedMatch {
+  match: MatchState;
+  host: Who;
+  guest: Who;
+  end: MatchEnd;
+  completedAt: number;
+}
+
+/** Reply to asking a room for results that were missed. */
+export interface RoomResults {
+  /** The asker's public id. */
+  ownerId: string;
+  /** They are in a match there that is still going on. */
+  live: boolean;
+  results: FinishedMatch[];
+}
+
 export interface SeatView {
   ownerId: string;
   nickname: string;
@@ -91,6 +114,8 @@ export interface RoomView {
   lineup: Lineup | null;
   toss: TossState | null;
   end: MatchEnd | null;
+  /** When the match finished, once it has. */
+  finishedAt: number | null;
   clock: Clock;
 }
 

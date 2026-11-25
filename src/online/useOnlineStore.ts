@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { MatchState } from '../engine/types';
 import { applyEvent, digest, type MatchEvent } from './events';
 import { getGuest } from './guest';
+import { expectResult, resultSettled, saveFinished } from './onlineDb';
 import { PROTOCOL_VERSION, type ClientMessage, type Clock, type RoomView, type ServerMessage } from './protocol';
 
 const PING_MS = 5_000;
@@ -53,9 +54,13 @@ interface OnlineState {
   /** The room is of no more use, and why. */
   fatal: string | null;
   toast: { id: number; text: string } | null;
+  /** Whether the finished match on screen has been recorded in this browser. */
+  saved: 'no' | 'yes' | 'failed';
 
   join(code: string): void;
   quit(): void;
+  /** Leave the room for good, waiting briefly for the server to confirm (and send any result). */
+  leave(): Promise<void>;
   send(m: ClientMessage): void;
   /** Apply the first queued item. */
   advance(): void;
@@ -78,7 +83,7 @@ function every(ms: number, fn: () => void): () => void {
   }
 }
 
-const EMPTY = { view: null, match: null, shownSeq: 0, queue: [], clock: null, offset: 0, fatal: null, toast: null };
+const EMPTY = { view: null, match: null, shownSeq: 0, queue: [], clock: null, offset: 0, fatal: null, toast: null, saved: 'no' as const };
 
 export const useOnline = create<OnlineState>((set, get) => {
   const raw = (m: ClientMessage) => {
@@ -87,6 +92,27 @@ export const useOnline = create<OnlineState>((set, get) => {
 
   function applySnapshot(view: RoomView, match: MatchState | null) {
     set({ view, match, shownSeq: view.seq, clock: view.clock });
+  }
+
+  /** Record a finished match, or note that one is under way so that its result can be collected later. */
+  async function record(view: RoomView, match: MatchState | null) {
+    const me = view[view.you]!;
+    try {
+      if (view.phase === 'toss' || view.phase === 'playing') {
+        set({ saved: 'no' });
+        await expectResult(view.code, me.ownerId);
+      } else if (view.phase === 'finished' && match?.result && view.guest && view.end && view.finishedAt !== null) {
+        const who = ({ ownerId, nickname }: typeof me) => ({ ownerId, nickname });
+        await saveFinished(me.ownerId, [
+          { match, host: who(view.host), guest: who(view.guest), end: view.end, completedAt: view.finishedAt },
+        ]);
+        await resultSettled(view.code);
+        set({ saved: 'yes' });
+      }
+    } catch (e) {
+      console.error(e);
+      if (view.phase === 'finished') set({ saved: 'failed' });
+    }
   }
 
   function receive(m: ServerMessage) {
@@ -114,6 +140,8 @@ export const useOnline = create<OnlineState>((set, get) => {
       else set({ queue: [...queue, { kind: 'snapshot', view: m.view, match: null }] });
       return;
     }
+    // Recorded as soon as it arrives, even if the last ball is still being played out on screen.
+    void record(m.view, m.match);
     // The snapshot that follows the last ball waits for that ball. Any other replaces whatever we had.
     const last = [...queue].reverse().find((q) => q.kind === 'event');
     if (last?.kind === 'event' && last.seq === m.view.seq && get().match?.id === m.match?.id)
@@ -190,6 +218,11 @@ export const useOnline = create<OnlineState>((set, get) => {
     quit() {
       hangUp();
       set({ status: 'idle', ...EMPTY });
+    },
+
+    async leave() {
+      raw({ t: 'leave' });
+      for (let i = 0; i < 30 && get().status === 'open' && !get().fatal; i++) await new Promise((r) => setTimeout(r, 50));
     },
 
     send(m) {

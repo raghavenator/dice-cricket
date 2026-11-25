@@ -165,10 +165,7 @@ function Setup({ view }: { view: RoomView }) {
     [send, view.team],
   );
 
-  const leave = () => {
-    send({ t: 'leave' });
-    goHome();
-  };
+  const leave = () => void useOnline.getState().leave().then(goHome);
 
   const waitingOn = !opponent
     ? 'Waiting for your opponent to join. You can choose your team now.'
@@ -324,7 +321,7 @@ function Toss({ view }: { view: RoomView }) {
       <p className="muted">
         {clock.paused ? `Waiting for ${opponent.nickname} to reconnect…` : <Countdown to={clock.deadline} />}
       </p>
-      <button className="btn btn-ghost" onClick={() => { send({ t: 'leave' }); goHome(); }}>Leave room</button>
+      <button className="btn btn-ghost" onClick={() => void useOnline.getState().leave().then(goHome)}>Leave room</button>
     </div>
   );
 }

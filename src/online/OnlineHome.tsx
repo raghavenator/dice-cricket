@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { goRoom } from './OnlineApp';
+import { collectResults } from './collect';
 import { getGuest, nicknameProblem, setNickname } from './guest';
 import { CODE_LENGTH, normalizeCode } from './protocol';
 import { createRoom, serverUrl } from './useOnlineStore';
@@ -43,8 +44,21 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<string[]>([]);
   const roomCode = normalizeCode(code);
   const nameBad = nicknameProblem(name) !== null;
+
+  // Pick up results from matches that ended without us, and offer the way back into any still going on.
+  useEffect(() => {
+    let here = true;
+    const run = () => collectResults().then((l) => here && setLive(l)).catch(console.error);
+    void run();
+    const t = window.setInterval(run, 15_000);
+    return () => {
+      here = false;
+      window.clearInterval(t);
+    };
+  }, []);
 
   const create = async () => {
     setBusy(true);
@@ -83,7 +97,14 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
       <p className="muted">
         Captain a team against a friend on another computer. One of you creates a room and sends the code to the other.
       </p>
-      <div className="form">
+      {live.map((c) => (
+        <button key={c} className="resume" onClick={() => goRoom(c)}>
+          <span className="resume-tag">Rejoin match</span>
+          <span>Room {c}</span>
+          <span className="muted small">Your match is still going on.</span>
+        </button>
+      ))}
+      <div className="form on-gap">
         <NameField value={name} onChange={setName} />
       </div>
       <div className="on-two">

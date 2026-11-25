@@ -3,12 +3,15 @@ import { BALLS_PER_OVER, bowlerOptions, currentInnings, needsBowler, pickAutoBow
 import type { MatchState, Rng, Team } from '../engine/types';
 import { applyEvent, digest, type Auto, type MatchEvent } from './events';
 import { applyLineup, defaultLineup, lineupProblem, onlineSettings, type Lineup } from './lineup';
-import type { AutoSettings, Clock, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn } from './protocol';
+import type { AutoSettings, Clock, FinishedMatch, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn, Who } from './protocol';
 import { createOnlineMatch, nextBatterOptions, ownedId, splitOwnedId } from './rules';
 import { DEFAULT_OVERS, OnlineError } from './validate';
 
 // The room is pure: no sockets, storage, timers or clock of its own. The server feeds it actions and the time,
 // saves the state it returns, passes messages on, and calls `tick` when `nextWake` says so.
+
+/** Raise when RoomState changes shape. Rooms saved in an older shape are left to expire. */
+export const STATE_VERSION = 2;
 
 const SEC = 1000;
 const MIN = 60 * SEC;
@@ -89,20 +92,6 @@ export interface Ctx {
   rng: Rng;
 }
 
-export interface Who {
-  ownerId: string;
-  nickname: string;
-}
-
-/** A finished match, as each browser records it. */
-export interface FinishedMatch {
-  match: MatchState;
-  host: Who;
-  guest: Who;
-  end: MatchEnd;
-  completedAt: number;
-}
-
 // ---------- Reading the state ----------
 
 const newSeat = ({ ownerId, nickname }: Who): SeatState => ({
@@ -125,7 +114,8 @@ export function seatOf(s: RoomState, ownerId: string): SeatId | null {
 
 export const otherSeat = (id: SeatId): SeatId => (id === 'host' ? 'guest' : 'host');
 
-const isLive = (s: RoomState) => s.phase === 'toss' || s.phase === 'playing';
+/** A match is under way (or being tossed for). */
+export const isLive = (s: RoomState): boolean => s.phase === 'toss' || s.phase === 'playing';
 const isOpen = (s: RoomState) => s.phase === 'waiting' || s.phase === 'setup';
 
 const seatOfTeam = (s: RoomState, teamId: string): SeatId => seatOf(s, splitOwnedId(teamId).ownerId)!;
@@ -197,6 +187,7 @@ export function viewFor(s: RoomState, seat: SeatId, now: number): RoomView {
     lineup: me.lineup,
     toss: s.toss,
     end: s.end,
+    finishedAt: s.phase === 'finished' ? s.phaseAt : null,
     clock: clockFor(s, seat, now),
   };
 }

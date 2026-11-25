@@ -1,3 +1,4 @@
+import { ALIAS } from './alias';
 import { OnlineError, parseNickname } from './validate';
 import { parseToken } from './protocol';
 
@@ -7,9 +8,7 @@ export interface Guest {
   nickname: string;
 }
 
-// `?guest=2` gives a second player in the same browser, for testing.
-const alias = import.meta.env.DEV ? new URLSearchParams(window.location.search).get('guest') : null;
-const KEY = `dice-cricket-online-guest${alias ? `-${alias}` : ''}`;
+const KEY = `dice-cricket-online-guest${ALIAS}`;
 
 /** crypto.randomUUID only exists on https and localhost, so this uses getRandomValues. */
 function newToken(): string {

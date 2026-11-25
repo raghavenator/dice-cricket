@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { PRESET_TEAMS } from '../../src/data/presets';
 import type { MatchState } from '../../src/engine/types';
 import { applyEvent, digest } from '../../src/online/events';
-import { PROTOCOL_VERSION, type ClientMessage, type RoomView, type ServerMessage } from '../../src/online/protocol';
+import { PROTOCOL_VERSION, type ClientMessage, type RoomResults, type RoomView, type ServerMessage } from '../../src/online/protocol';
 
 const BASE = process.env.SERVER ?? 'http://localhost:8787';
 const ORIGIN = 'http://localhost:5179';
@@ -30,6 +30,16 @@ async function create(tok: string, nickname = 'Raj', origin: string | null = ORI
     body: JSON.stringify({ v: PROTOCOL_VERSION, token: tok, nickname }),
   });
   return { status: res.status, body: (await res.json()) as { code?: string; error?: string } };
+}
+
+async function missed(code: string, tok: string): Promise<RoomResults> {
+  const res = await fetch(`${BASE}/rooms/${code}/results`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+    body: JSON.stringify({ v: PROTOCOL_VERSION, token: tok }),
+  });
+  check(res.status === 200, `results status ${res.status}`);
+  return (await res.json()) as RoomResults;
 }
 
 class Player {
@@ -210,6 +220,38 @@ const tests: Record<string, () => Promise<void>> = {
     await until('can still see the result', () => guest.match?.result);
   },
 
+  async 'keeps results for a player who was away, through rematches and closing'() {
+    const { host, guest, code } = await toPlay(1);
+    check((await missed(code, guest.tok)).live, 'live during the match');
+    check((await missed(code, guest.tok)).results.length === 0, 'nothing yet');
+    await playOn([host, guest], () => host.view!.phase === 'finished' && guest.view!.phase === 'finished');
+    const first = host.match!;
+    const got = await missed(code, guest.tok);
+    check(!got.live && got.results.length === 1, 'one result');
+    check(JSON.stringify(got.results[0].match) === JSON.stringify(first), 'the same match');
+    check(got.results[0].completedAt === host.view!.finishedAt, 'the same time');
+    check(got.results[0].host.nickname === 'Raj' && got.results[0].guest.nickname === 'Sam', 'names');
+    const eve = await missed(code, token('eve'));
+    check(!eve.live && eve.results.length === 0, 'strangers get nothing');
+    // A rematch that ends with the guest gone, after which the host leaves and the room closes.
+    host.send({ t: 'rematch' });
+    guest.send({ t: 'rematch' });
+    await until('rematch', () => host.view!.phase === 'setup' && guest.view!.phase === 'setup');
+    host.send({ t: 'ready' });
+    guest.send({ t: 'ready' });
+    await until('toss', () => host.view!.phase === 'toss');
+    guest.send({ t: 'callToss', call: 'heads' });
+    await until('called', () => host.view!.toss?.winner);
+    (host.view!.toss!.winner === 'host' ? host : guest).send({ t: 'chooseInnings', choice: 'bat' });
+    await until('started', () => host.match && host.view!.phase === 'playing');
+    host.send({ t: 'leave' });
+    await until('forfeit', () => guest.view!.phase === 'finished');
+    const two = await missed(code, host.tok);
+    check(two.results.length === 2 && two.results.some((r) => r.end.kind === 'forfeit' && r.end.loser === 'host'), 'both results');
+    const none = await missed('ZZZZZZ', host.tok);
+    check(!none.live && none.results.length === 0, 'unknown room');
+  },
+
   async 'survives the server restarting mid-match'() {
     const { host, guest } = await toPlay(2);
     await playOn([host, guest], () => host.seq >= 6);
@@ -229,8 +271,10 @@ const tests: Record<string, () => Promise<void>> = {
       await until('reconnected', () => p.open);
     }
     check(host.seq >= before && host.match!.innings[0].balls.length > 0, 'kept the match');
+    const finished = host.view!.phase === 'finished';
     await playOn([host, guest], () => host.view!.phase === 'finished' && guest.view!.phase === 'finished');
     check(JSON.stringify(host.match) === JSON.stringify(guest.match), 'identical scorecards');
+    check(finished || (await missed(host.code, host.tok)).results.length === 1, 'result kept');
   },
 };
 
