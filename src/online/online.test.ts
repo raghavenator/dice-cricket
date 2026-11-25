@@ -265,6 +265,8 @@ describe('isolation from the offline game', () => {
   it('never starts the main game or writes to its database from online code', () => {
     for (const [path, src] of online) {
       expect(/\.init\(\)/.test(src), path).toBe(false);
+      // The main game's store may be read, and its in-memory history filled for hover cards, but none of its actions used.
+      expect(/useGame\.getState|useGame\(/.test(src), path).toBe(false);
       expect(/\bdb\.\w+\.(put|bulkPut|add|bulkAdd|update|delete|bulkDelete|clear|modify)\b/.test(src), path).toBe(false);
     }
   });

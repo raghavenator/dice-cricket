@@ -5,15 +5,16 @@ import { BallChip, BattingCard, BowlingCard, InningsTabs } from '../components/S
 import { BALLS_PER_OVER, bowlerOptions, currentInnings, getTeam, oversLimit } from '../engine/match';
 import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
 import type { Ball, MatchState } from '../engine/types';
-import { goHome } from './OnlineApp';
 import { Presence } from './OnlineRoom';
 import { AutoToggles } from './AutoToggles';
 import type { Auto, MatchEvent } from './events';
+import { goHome } from './nav';
 import type { RoomView } from './protocol';
 import { PICK_MS, ROLL_MS, suggestBowler } from './room';
 import { nextBatterOptions } from './rules';
 import { Countdown, secondsLeft, useServerNow } from './time';
 import { useOnline } from './useOnlineStore';
+import { useHoverCards } from './useRecords';
 
 // Must fit inside BALL_GAP_MS and CHECK_GAP_MS in room.ts, or one player's dice would run behind.
 const SPIN_MS = 800;
@@ -63,6 +64,7 @@ export function OnlineMatch() {
   const status = useOnline((s) => s.status);
   const toast = useOnline((s) => s.toast);
   const send = useOnline((s) => s.send);
+  const saved = useOnline((s) => s.saved);
   const advance = useOnline((s) => s.advance);
   const now = useServerNow();
 
@@ -132,6 +134,7 @@ export function OnlineMatch() {
   // Picks are quick, so the list takes the place of the roll buttons.
   const picking =
     mine && !clock.paused && ((turn?.kind === 'bowler' && !me.auto.bowler) || (turn?.kind === 'batter' && !me.auto.batter));
+  useHoverCards(me.ownerId, saved);
   // Block a second click until the server has answered the first.
   const [asked, setAsked] = useState<{ seq: number; at: number; toast?: number } | null>(null);
   const waiting = asked !== null && asked.seq === shownSeq && asked.toast === toast?.id && Date.now() - asked.at < 3000;

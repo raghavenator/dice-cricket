@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { goRoom } from './OnlineApp';
 import { collectResults } from './collect';
 import { getGuest, nicknameProblem, setNickname } from './guest';
+import { goRoom, goStats } from './nav';
 import { CODE_LENGTH, normalizeCode } from './protocol';
 import { createRoom, serverUrl } from './useOnlineStore';
 import { MAX_NICKNAME } from './validate';
@@ -86,7 +86,10 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
       <div className="screen on-narrow">
         <h2>Online 1v1</h2>
         <p className="muted">Online play is not set up on this site yet.</p>
-        <a className="btn on-link" href="./index.html">← Back to Dice Cricket</a>
+        <div className="btn-row">
+          <a className="btn on-link" href="./index.html">← Back to Dice Cricket</a>
+          <button className="btn" onClick={goStats}>Online Stats</button>
+        </div>
       </div>
     );
   }
@@ -133,6 +136,10 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
           <button className="btn btn-primary" disabled={!roomCode || nameBad}>Join room</button>
         </form>
       </div>
+      <button className="mode on-stats-link" onClick={goStats}>
+        <span className="mode-title">📊 Online Stats</span>
+        <span className="mode-desc">Your results, head-to-heads, batting and bowling online. Separate from your offline stats.</span>
+      </button>
       {nameBad && <p className="muted small">Enter your name to create or join a room.</p>}
       {error && <p className="on-error" role="alert">{error}</p>}
       <div className="nav-row">

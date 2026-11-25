@@ -13,14 +13,14 @@ export const MAX_NICKNAME = 20;
 
 // Control characters and text-direction overrides. Joiners stay allowed: many scripts need them.
 const UNSAFE = /[\p{Cc}‎‏‪-‮⁦-⁩]/u;
-const HEX = /^#[0-9a-fA-F]{6}$/;
+export const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export function asObject(v: unknown, what: string): Record<string, unknown> {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) throw new OnlineError(`${what} is not valid`);
   return v as Record<string, unknown>;
 }
 
-function text(v: unknown, max: number, what: string): string {
+export function text(v: unknown, max: number, what: string): string {
   if (typeof v !== 'string') throw new OnlineError(`${what} must be text`);
   const s = v.trim();
   if (s === '') throw new OnlineError(`${what} cannot be empty`);
