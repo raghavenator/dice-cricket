@@ -11,6 +11,8 @@
 .on-backup { margin-top: 18px; }
 .on-import { margin-top: 12px; padding: 10px 14px; border: 2px solid var(--accent); border-radius: 10px; background: var(--surface-2); }
 .on-import p { margin: 0 0 8px; }
+.on-open-room { padding: 8px 8px 8px 14px; gap: 12px; }
+.on-flat { margin: 0; }
 .on-gap { margin-top: 14px; }
 .on-pad { padding: 14px 16px; }
 .on-center { justify-content: center; }

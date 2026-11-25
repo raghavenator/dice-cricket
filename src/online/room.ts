@@ -1,9 +1,10 @@
+import { PRESET_TEAMS } from '../data/presets';
 import { rollDice } from '../engine/dice';
 import { BALLS_PER_OVER, bowlerOptions, currentInnings, needsBowler, pickAutoBowler } from '../engine/match';
 import type { MatchState, Rng, Team } from '../engine/types';
 import { applyEvent, digest, type Auto, type MatchEvent } from './events';
 import { applyLineup, defaultLineup, lineupProblem, onlineSettings, type Lineup } from './lineup';
-import type { AutoSettings, Clock, FinishedMatch, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn, Who } from './protocol';
+import type { Access, AutoSettings, Clock, FinishedMatch, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn, Who } from './protocol';
 import { createOnlineMatch, nextBatterOptions, ownedId, splitOwnedId } from './rules';
 import { DEFAULT_OVERS, OnlineError } from './validate';
 
@@ -27,6 +28,8 @@ export const CHECK_GAP_MS = 2700;
 export const INNINGS_GAP_MS = 2 * SEC;
 /** After someone returns, they get at least this long on a paused turn. */
 export const RESUME_MS = 5 * SEC;
+/** Strangers in a quick match have this long to set up. Then it starts with whatever they have. */
+export const QUICK_SETUP_MS = 60 * SEC;
 export const CLAIM_MS = 90 * SEC;
 /** Rooms with nobody to play close after this. */
 export const IDLE_MS = 30 * MIN;
@@ -51,6 +54,7 @@ export interface SeatState {
 
 export interface RoomState {
   code: string;
+  access: Access;
   createdAt: number;
   phase: Phase;
   /** When the current phase began. */
@@ -99,9 +103,9 @@ const newSeat = ({ ownerId, nickname }: Who): SeatState => ({
   ready: false, auto: { roll: true, batter: true, bowler: true }, wantsRematch: false, left: false,
 });
 
-export function createRoom(code: string, host: Who, now: number): RoomState {
+export function createRoom(code: string, host: Who, now: number, access: Access = 'private'): RoomState {
   return {
-    code, createdAt: now, phase: 'waiting', phaseAt: now, overs: DEFAULT_OVERS,
+    code, access, createdAt: now, phase: 'waiting', phaseAt: now, overs: DEFAULT_OVERS,
     host: { ...newSeat(host), awaySince: now }, guest: null, removed: [],
     toss: null, match: null, matchNo: 0, batterPending: false, end: null,
     seq: 0, nextBallAt: 0, deadline: null, remaining: null,
@@ -111,6 +115,9 @@ export function createRoom(code: string, host: Who, now: number): RoomState {
 export function seatOf(s: RoomState, ownerId: string): SeatId | null {
   return s.host.ownerId === ownerId ? 'host' : s.guest?.ownerId === ownerId ? 'guest' : null;
 }
+
+/** Strangers may join, so only the sample teams are allowed. */
+export const isPublic = (s: Pick<RoomState, 'access'>): boolean => s.access !== 'private';
 
 export const otherSeat = (id: SeatId): SeatId => (id === 'host' ? 'guest' : 'host');
 
@@ -177,6 +184,7 @@ export function viewFor(s: RoomState, seat: SeatId, now: number): RoomView {
   const me = s[seat]!;
   return {
     code: s.code,
+    access: s.access,
     phase: s.phase,
     you: seat,
     overs: s.overs,
@@ -352,6 +360,38 @@ function doForfeit(s: RoomState, out: SeqEvent[], loser: SeatId, now: number) {
   finish(s, { kind: 'forfeit', loser }, now);
 }
 
+/** Both players are here and can set up. */
+function beginSetup(s: RoomState, now: number) {
+  setPhase(s, 'setup', now);
+  s.deadline = s.access === 'quick' ? now + QUICK_SETUP_MS : null;
+}
+
+function beginToss(s: RoomState, now: number) {
+  s.toss = {};
+  s.match = null;
+  s.end = null;
+  setPhase(s, 'toss', now);
+  armClock(s, now);
+  syncPause(s, now);
+}
+
+/** Time is up in a quick match: start with what they have, or close the room if someone has gone. */
+function startQuick(s: RoomState, { now, rng }: Ctx) {
+  const seats = [s.host, s.guest!];
+  if (seats.some((x) => !x.connected)) {
+    close(s, now);
+    return;
+  }
+  for (const seat of seats) {
+    if (!seat.team || !seat.lineup || lineupProblem(seat.team, seat.lineup, s.overs)) {
+      seat.team = seat.team ?? structuredClone(PRESET_TEAMS[Math.min(PRESET_TEAMS.length - 1, Math.floor(rng() * PRESET_TEAMS.length))]);
+      seat.lineup = defaultLineup(seat.team);
+    }
+    seat.ready = true;
+  }
+  beginToss(s, now);
+}
+
 function dropGuest(s: RoomState, now: number) {
   s.guest = null;
   s.host.ready = false;
@@ -401,7 +441,7 @@ export function connect(s0: RoomState, who: Who, now: number): Step {
     if (s.guest || s.phase !== 'waiting') throw new OnlineError('This room is full');
     s.guest = newSeat(who);
     id = 'guest';
-    setPhase(s, 'setup', now);
+    beginSetup(s, now);
   }
   const seat = s[id]!;
   seat.connected = true;
@@ -452,6 +492,7 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
   switch (a.t) {
     case 'setSettings': {
       inSetup();
+      if (s.access === 'quick') throw new OnlineError('Quick matches are always 5 overs');
       if (id !== 'host') throw new OnlineError('Only the host can change the overs');
       if (a.overs === s.overs) return done('none');
       s.overs = a.overs;
@@ -463,12 +504,28 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       }
       return done('room');
     }
-    case 'setTeam':
-      inSetup();
-      me.team = a.team;
-      me.lineup = defaultLineup(a.team);
+    case 'setOpen': {
+      if (id !== 'host') throw new OnlineError('Only the host can do that');
+      if (s.access === 'quick' || s.phase !== 'waiting') throw new OnlineError('That can only be changed before someone joins');
+      const access: Access = a.on ? 'open' : 'private';
+      if (s.access === access) return done('none');
+      s.access = access;
+      // A custom team cannot be used against strangers, and even a sample one may have been edited.
+      me.team = null;
+      me.lineup = null;
       me.ready = false;
       return done('room');
+    }
+    case 'setTeam': {
+      inSetup();
+      // Against strangers only the id counts, so that names edited in someone's browser are not shown.
+      const team = isPublic(s) ? structuredClone(PRESET_TEAMS.find((t) => t.id === a.team.id)) : a.team;
+      if (!team) throw new OnlineError('Only the sample teams can be used against strangers');
+      me.team = team;
+      me.lineup = defaultLineup(team);
+      me.ready = false;
+      return done('room');
+    }
     case 'setLineup': {
       inSetup();
       if (!me.team) throw new OnlineError('Choose a team first');
@@ -485,12 +542,7 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       if (problem) throw new OnlineError(problem);
       me.ready = true;
       if (s.host.ready && s.guest!.ready) {
-        s.toss = {};
-        s.match = null;
-        s.end = null;
-        setPhase(s, 'toss', now);
-        armClock(s, now);
-        syncPause(s, now);
+        beginToss(s, now);
         return done('snapshot');
       }
       return done('room');
@@ -501,6 +553,7 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       return done('room');
     case 'removeGuest':
       if (id !== 'host') throw new OnlineError('Only the host can do that');
+      if (s.access === 'quick') throw new OnlineError('Leave the room to find someone else');
       if (s.phase !== 'setup') throw new OnlineError('It is too late to remove your opponent');
       s.removed = [...s.removed, s.guest!.ownerId].slice(-MAX_REMOVED);
       dropGuest(s, now);
@@ -561,7 +614,7 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       s.match = null;
       s.end = null;
       s.seq = 0;
-      setPhase(s, 'setup', now);
+      beginSetup(s, now);
       return done('snapshot');
     }
     case 'leave':
@@ -575,7 +628,8 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
         me.wantsRematch = false;
         return done('room');
       }
-      if (id === 'host') close(s, now);
+      // Two strangers have no reason to wait in the same room for someone else.
+      if (id === 'host' || s.access === 'quick') close(s, now);
       else dropGuest(s, now);
       return done('snapshot');
   }
@@ -594,5 +648,9 @@ export function tick(s0: RoomState, ctx: Ctx): Step {
 
   const s = structuredClone(s0);
   const events: SeqEvent[] = [];
+  if (s.phase === 'setup') {
+    startQuick(s, ctx);
+    return { state: s, events, send: 'snapshot' };
+  }
   return { state: s, events, send: playTurn(s, events, ctx) };
 }

@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { parseClientMessage, type FinishedMatch, type RoomResults, type ServerMessage, type Who } from '../../src/online/protocol';
+import { HEARTBEAT_MS, type Listing } from '../../src/online/lobby';
+import { parseClientMessage, type Access, type FinishedMatch, type RoomResults, type ServerMessage, type Who } from '../../src/online/protocol';
 import {
   KEEP_FINISHED_MS, STATE_VERSION, act, clockFor, connect, createRoom, deletesAt, disconnect, finishedMatch, isLive,
   nextWake, seatOf, tick, viewFor, type Ctx, type RoomState, type Step,
@@ -7,6 +8,7 @@ import {
 import { OnlineError } from '../../src/online/validate';
 import { ownerIdFor, secureRandom } from './identity';
 import type { Env } from './index';
+import type { Lobby } from './lobby-object';
 
 const ROOM_KEY = `room-v${STATE_VERSION}`;
 /** Finished matches are kept apart from the room, so that a rematch or closing the room does not lose them. */
@@ -38,6 +40,12 @@ const ctxNow = (): Ctx => ({ now: Date.now(), rng: secureRandom });
 export class Room extends DurableObject<Env> {
   private state: RoomState | null = null;
   private alarmAt: number | null = null;
+  /** What the lobby was last told, as JSON. */
+  private announced = 'null';
+  /** Number of the last message to the lobby. */
+  private lobbySeq = 0;
+  /** Kept, because messages through one stub arrive in the order they were sent. */
+  private lobby?: DurableObjectStub<Lobby>;
   /** Results being kept: match id and when it finished, oldest first. */
   private results = new Map<string, number>();
   private budgets = new Map<WebSocket, { tokens: number; at: number }>();
@@ -46,7 +54,10 @@ export class Room extends DurableObject<Env> {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     void ctx.blockConcurrencyWhile(async () => {
-      this.state = (await ctx.storage.get<RoomState>(ROOM_KEY)) ?? null;
+      const saved = await ctx.storage.get<RoomState>(ROOM_KEY);
+      // Rooms from before open rooms existed are all private.
+      this.state = saved ? { ...saved, access: saved.access ?? 'private' } : null;
+      this.announced = JSON.stringify(this.listing());
       this.alarmAt = await ctx.storage.getAlarm();
       const kept = [...(await ctx.storage.list<FinishedMatch>({ prefix: RESULT_PREFIX })).values()];
       kept.sort((a, b) => a.completedAt - b.completedAt);
@@ -60,10 +71,16 @@ export class Room extends DurableObject<Env> {
   }
 
   /** Called by the Worker. False when the code is already in use. */
-  async create(code: string, host: Who): Promise<boolean> {
+  async create(code: string, host: Who, access: Access): Promise<boolean> {
     if (this.state || this.results.size) return false;
-    this.publish({ state: createRoom(code, host, Date.now()), events: [], send: 'none' });
+    this.publish({ state: createRoom(code, host, Date.now(), access), events: [], send: 'none' });
     return true;
+  }
+
+  /** Called by the lobby before it sends a stranger here. */
+  async isWaiting(): Promise<boolean> {
+    this.dropStale();
+    return this.state?.phase === 'waiting' && this.state.access === 'quick';
   }
 
   /** Called by the Worker: what this player may have missed. */
@@ -155,19 +172,51 @@ export class Room extends DurableObject<Env> {
       this.rest();
       return;
     }
-    for (const ws of this.ctx.getWebSockets()) {
-      const seen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? this.attachment(ws).openedAt;
-      if (now - seen > STALE_MS) {
-        this.close(ws, 'No reply');
-        this.gone(ws);
-      }
-    }
+    this.dropStale();
     this.catchUp();
     // Deletes the room if its time has come, and otherwise sets the next alarm.
     if (this.state) this.publish({ state: this.state, events: [], send: 'none' });
+    // Still waiting for a stranger: say so again, or the lobby will forget this room.
+    if (this.listing()) this.tellLobby(true);
   }
 
   // ---------- Helpers ----------
+
+  /** Let go of connections that have gone quiet. */
+  private dropStale(): void {
+    const now = Date.now();
+    for (const ws of this.ctx.getWebSockets()) {
+      const seen = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? this.attachment(ws).openedAt;
+      if (now - seen <= STALE_MS) continue;
+      this.close(ws, 'No reply');
+      this.gone(ws);
+    }
+  }
+
+  /** What the lobby should show for this room, if anything. */
+  private listing(): Listing | null {
+    const s = this.state;
+    if (!s || s.access === 'private' || s.phase !== 'waiting' || !s.host.connected) return null;
+    return {
+      code: s.code, kind: s.access, ownerId: s.host.ownerId, nickname: s.host.nickname, overs: s.overs, since: s.phaseAt,
+    };
+  }
+
+  private tellLobby(again = false, code = this.state?.code): void {
+    const listing = this.listing();
+    const json = JSON.stringify(listing);
+    if (!code || (json === this.announced && !again)) return;
+    this.announced = json;
+    this.lobby ??= this.env.LOBBY.get(this.env.LOBBY.idFromName('main'));
+    this.lobbySeq = Math.max(Date.now(), this.lobbySeq + 1);
+    this.ctx.waitUntil(
+      this.lobby.announce(code, listing, this.lobbySeq).catch((e) => {
+        // A stub that has failed may stay broken, so get a new one next time.
+        this.lobby = undefined;
+        console.error(e);
+      }),
+    );
+  }
 
   /** Make every move that is due. One can make the next due at once, such as an automatic bowler and then the roll. */
   private catchUp(): void {
@@ -181,6 +230,8 @@ export class Room extends DurableObject<Env> {
   /** Save the new state, tell everyone what changed (`except` gets its own snapshot), and set the next alarm. */
   private publish(step: Step, except?: WebSocket): void {
     const changed = step.state !== this.state;
+    // The lobby lists a quick room before its maker has connected, so it must hear when the wait ends regardless.
+    const waitOver = this.state?.phase === 'waiting' && step.state.phase !== 'waiting' && step.state.access !== 'private';
     this.state = step.state;
     const now = Date.now();
     const result = finishedMatch(step.state);
@@ -212,13 +263,18 @@ export class Room extends DurableObject<Env> {
 
     if (over) {
       this.state = null;
+      this.tellLobby(waitOver, step.state.code);
       void this.ctx.storage.delete(ROOM_KEY);
       this.rest();
       return;
     }
     // Writes are not awaited: the runtime holds outgoing messages back until they are safely stored.
     if (changed) void this.ctx.storage.put(ROOM_KEY, step.state);
-    this.wakeAt(nextWake(step.state));
+    this.tellLobby(waitOver);
+    // While listed, wake to repeat the listing, and to notice if the host has silently gone.
+    const wake = nextWake(step.state);
+    const beat = this.listing() ? now + HEARTBEAT_MS : null;
+    this.wakeAt(wake === null ? beat : beat === null ? wake : Math.min(wake, beat));
   }
 
   /** The room itself has gone. Keep only results still to be collected, if any. */

@@ -4,7 +4,7 @@ import type { MatchState } from '../engine/types';
 import { applyEvent, digest, type MatchEvent } from './events';
 import { getGuest } from './guest';
 import { expectResult, resultSettled, saveFinished } from './onlineDb';
-import { PROTOCOL_VERSION, type ClientMessage, type Clock, type RoomView, type ServerMessage } from './protocol';
+import { PROTOCOL_VERSION, type ClientMessage, type Clock, type LobbyRoom, type RoomView, type ServerMessage } from './protocol';
 
 const PING_MS = 5_000;
 /** No reply to a ping for this long means the connection is dead, even if the browser has not noticed. */
@@ -19,23 +19,33 @@ export function serverUrl(): string | null {
   return url === 'same' ? window.location.origin : url.replace(/\/$/, '');
 }
 
-export async function createRoom(nickname: string): Promise<string> {
+async function post<T extends object>(path: string, body: object): Promise<T> {
   const base = serverUrl();
   if (!base) throw new Error('Online play is not set up on this site.');
   let res: Response;
   try {
-    res = await fetch(`${base}/rooms`, {
+    res = await fetch(base + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ v: PROTOCOL_VERSION, token: getGuest().token, nickname }),
+      body: JSON.stringify({ v: PROTOCOL_VERSION, token: getGuest().token, ...body }),
     });
   } catch {
     throw new Error('Cannot reach the game server. Check your connection and try again.');
   }
-  const body = (await res.json().catch(() => ({}))) as { code?: string; error?: string };
-  if (!body.code) throw new Error(body.error ?? 'Could not create a room. Try again.');
-  return body.code;
+  const reply = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(reply.error ?? 'Something went wrong. Try again.');
+  return reply;
 }
+
+/** Makes a room and returns its code. Anyone can find an open one. */
+export const createRoom = async (nickname: string, open: boolean): Promise<string> =>
+  (await post<{ code: string }>('/rooms', { nickname, open })).code;
+
+/** The room to go to for a quick match. While waiting in one, pass its code: the answer may be someone to join instead. */
+export const quickMatch = async (nickname: string, current?: string): Promise<string> =>
+  (await post<{ code: string }>('/quick', { nickname, current })).code;
+
+export const openRooms = async (): Promise<LobbyRoom[]> => (await post<{ rooms: LobbyRoom[] }>('/lobby', {})).rooms;
 
 /** Match updates wait here while the dice for earlier ones are still rolling. */
 export type QueueItem =

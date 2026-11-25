@@ -3,6 +3,8 @@ import { collectResults } from './collect';
 import { getGuest, nicknameProblem, setNickname } from './guest';
 import { goRoom, goStats } from './nav';
 import { CODE_LENGTH, normalizeCode } from './protocol';
+import { OpenRooms } from './OpenRooms';
+import { QuickMatchButton } from './QuickMatchButton';
 import { createRoom, serverUrl } from './useOnlineStore';
 import { MAX_NICKNAME } from './validate';
 
@@ -60,25 +62,33 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
     };
   }, []);
 
-  const create = async () => {
+  /** Remember the name, ready to play. */
+  const named = () => {
+    const nickname = setNickname(name);
+    onNamed();
+    return nickname;
+  };
+
+  const create = async (open: boolean) => {
     setBusy(true);
     setError(null);
     try {
-      const nickname = setNickname(name);
-      onNamed();
-      goRoom(await createRoom(nickname));
+      goRoom(await createRoom(named(), open));
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
     }
   };
 
+  const joinRoom = (c: string) => {
+    if (nameBad) return;
+    named();
+    goRoom(c);
+  };
+
   const join = (e: FormEvent) => {
     e.preventDefault();
-    if (!roomCode || nameBad) return;
-    setNickname(name);
-    onNamed();
-    goRoom(roomCode);
+    if (roomCode) joinRoom(roomCode);
   };
 
   if (!serverUrl()) {
@@ -98,7 +108,7 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
     <div className="screen on-narrow">
       <h2>Online 1v1</h2>
       <p className="muted">
-        Captain a team against a friend on another computer. One of you creates a room and sends the code to the other.
+        Captain a team against someone on another computer: a friend, with a room code, or anyone who is around.
       </p>
       {live.map((c) => (
         <button key={c} className="resume" onClick={() => goRoom(c)}>
@@ -110,11 +120,12 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
       <div className="form on-gap">
         <NameField value={name} onChange={setName} />
       </div>
+      <h3>Play a friend</h3>
       <div className="on-two">
         <div className="form">
           <h3>Create a room</h3>
-          <p className="muted small">You get a code and a link to send. You choose the overs.</p>
-          <button className="btn btn-primary" disabled={nameBad || busy} onClick={() => void create()}>
+          <p className="muted small">You get a code and a link to send. Only people with it can join. Any team, including your own.</p>
+          <button className="btn btn-primary" disabled={nameBad || busy} onClick={() => void create(false)}>
             {busy ? 'Creating…' : 'Create room'}
           </button>
         </div>
@@ -135,6 +146,20 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
           </label>
           <button className="btn btn-primary" disabled={!roomCode || nameBad}>Join room</button>
         </form>
+      </div>
+      <h3>Play anyone</h3>
+      <p className="muted small">Against strangers you both play with one of the six sample teams.</p>
+      <div className="on-two">
+        <div className="form">
+          <h3>Quick match</h3>
+          <p className="muted small">5 overs against whoever is waiting. If nobody is, you wait for the next player.</p>
+          <QuickMatchButton label="Find a match" disabled={nameBad} before={named} />
+        </div>
+        <div className="form">
+          <h3>Open rooms</h3>
+          <OpenRooms disabled={nameBad} onJoin={joinRoom} />
+          <button className="btn" disabled={nameBad || busy} onClick={() => void create(true)}>Make an open room</button>
+        </div>
       </div>
       <button className="mode on-stats-link" onClick={goStats}>
         <span className="mode-title">📊 Online Stats</span>

@@ -4,9 +4,9 @@ import { battingCard } from '../engine/stats';
 import type { MatchState, Rng, Team } from '../engine/types';
 import { applyEvent, digest } from './events';
 import { autoPlan, defaultLineup } from './lineup';
-import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseClientMessage, type RoomAction, type SeatId } from './protocol';
+import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseClientMessage, type Access, type RoomAction, type SeatId } from './protocol';
 import {
-  BALL_GAP_MS, CHECK_GAP_MS, CLAIM_MS, IDLE_MS, INNINGS_GAP_MS, KEEP_FINISHED_MS, PICK_MS, RESUME_MS, ROLL_MS, TOSS_MS,
+  BALL_GAP_MS, CHECK_GAP_MS, CLAIM_MS, IDLE_MS, INNINGS_GAP_MS, KEEP_FINISHED_MS, PICK_MS, QUICK_SETUP_MS, RESUME_MS, ROLL_MS, TOSS_MS,
   act, connect, createRoom, currentTurn, deletesAt, disconnect, finishedMatch, nextWake, tick, viewFor,
   type RoomState, type Step,
 } from './room';
@@ -41,9 +41,9 @@ class Sim {
   clientSeq = 0;
   sent: Step[] = [];
 
-  constructor(seed = 1) {
+  constructor(seed = 1, access: Access = 'private') {
     this.rng = seeded(seed);
-    this.state = createRoom('K7M4QP', { ownerId: IDS.host, nickname: 'Raj' }, this.now);
+    this.state = createRoom('K7M4QP', { ownerId: IDS.host, nickname: 'Raj' }, this.now, access);
   }
 
   private take(step: Step): Step {
@@ -181,7 +181,7 @@ describe('messages', () => {
   it('rejects everything else', () => {
     const bad = [
       '', 'null', '[]', '{', '"roll"', '{}', '{"t":"win"}', '{"t":"__proto__"}', '{"t":"setSettings","overs":500}',
-      '{"t":"callToss","call":"edge"}', '{"t":"chooseInnings"}', '{"t":"setAuto","what":"roll","on":1}', '{"t":"setAuto","what":"win","on":true}', '{"t":"setAuto","on":true}', '{"t":"chooseBowler","playerId":"a"}',
+      '{"t":"callToss","call":"edge"}', '{"t":"chooseInnings"}', '{"t":"setAuto","what":"roll","on":1}', '{"t":"setAuto","what":"win","on":true}', '{"t":"setAuto","on":true}', '{"t":"setOpen"}', '{"t":"setOpen","on":"yes"}', '{"t":"chooseBowler","playerId":"a"}',
       '{"t":"chooseBowler","playerId":"a/b/c"}', '{"t":"chooseBatter","playerId":{}}',
       JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, token: 'short', nickname: 'Raj' }),
       JSON.stringify({ t: 'roll', pad: 'x'.repeat(MAX_MESSAGE_BYTES) }),
@@ -843,12 +843,170 @@ describe('rematch', () => {
   });
 });
 
+describe('open rooms', () => {
+  const custom: Team = { ...hawks, id: 't-mine', name: 'My Team' };
+
+  it('allow only the sample teams, as they really are', () => {
+    const s = new Sim(1, 'open');
+    s.connect('host');
+    s.connect('guest');
+    s.fails('host', { t: 'setTeam', team: custom }, /sample teams/);
+    const edited = { ...hawks, name: 'Rude Name', players: hawks.players.map((p) => ({ ...p, name: 'Rude' })) };
+    s.act('guest', { t: 'setTeam', team: edited });
+    expect(s.state.guest!.team).toEqual(hawks);
+    expect(JSON.stringify(s.state)).not.toContain('Rude');
+  });
+
+  it('still allow lineups, and any overs the host likes', () => {
+    const s = new Sim(1, 'open').toSetup();
+    const l = defaultLineup(hawks);
+    s.act('host', { t: 'setLineup', lineup: { ...l, battingOrder: [...l.battingOrder].reverse() } });
+    s.act('host', { t: 'setSettings', overs: 3 });
+    s.act('host', { t: 'ready' });
+    s.act('guest', { t: 'ready' });
+    expect(s.state.phase).toBe('toss');
+  });
+
+  it('do not change private rooms', () => {
+    const s = new Sim();
+    s.connect('host');
+    s.act('host', { t: 'setTeam', team: custom });
+    expect(s.state.host.team).toEqual(custom);
+    expect(s.idle('host').access).toBe('private');
+  });
+
+  it('can be switched by the host until someone joins, which clears the team', () => {
+    const s = new Sim();
+    s.connect('host');
+    s.act('host', { t: 'setTeam', team: custom });
+    s.act('host', { t: 'setOpen', on: true });
+    expect(s.state).toMatchObject({ access: 'open', host: { team: null, lineup: null } });
+    s.act('host', { t: 'setOpen', on: false });
+    expect(s.state.access).toBe('private');
+    s.act('host', { t: 'setOpen', on: true });
+    s.connect('guest');
+    s.fails('host', { t: 'setOpen', on: false }, /before someone joins/);
+    s.fails('guest', { t: 'setOpen', on: false }, /host/);
+  });
+
+  it('let the host remove someone and wait for another', () => {
+    const s = new Sim(1, 'open').toSetup();
+    s.act('host', { t: 'removeGuest' });
+    expect(s.state).toMatchObject({ phase: 'waiting', access: 'open', deadline: null });
+    expect(() => s.connect('guest')).toThrow(/removed/);
+  });
+
+  it('have no clock while setting up', () => {
+    expect(new Sim(1, 'open').toSetup().state.deadline).toBeNull();
+  });
+});
+
+describe('quick match', () => {
+  const quick = (seed = 1) => {
+    const s = new Sim(seed, 'quick');
+    s.connect('host');
+    s.connect('guest');
+    return s;
+  };
+
+  it('is always five overs with sample teams, and nobody is in charge', () => {
+    const s = quick();
+    expect(s.state.overs).toBe(5);
+    s.fails('host', { t: 'setSettings', overs: 1 }, /5 overs/);
+    s.fails('host', { t: 'removeGuest' }, /Leave/);
+    s.fails('host', { t: 'setTeam', team: { ...hawks, id: 't-mine' } }, /sample/);
+    s.fails('host', { t: 'setOpen', on: false });
+  });
+
+  it('starts as soon as both are ready', () => {
+    const s = quick();
+    for (const seat of ['host', 'guest'] as const) {
+      s.act(seat, { t: 'setTeam', team: rhinos });
+      s.act(seat, { t: 'ready' });
+    }
+    expect(s.state.phase).toBe('toss');
+    expect(s.state.deadline).toBe(s.now + TOSS_MS);
+  });
+
+  it('starts after a minute with whatever they have', () => {
+    const s = quick();
+    expect(s.state.deadline).toBe(s.now + QUICK_SETUP_MS);
+    s.act('host', { t: 'setTeam', team: rhinos });
+    const l = { ...defaultLineup(rhinos), battingOrder: rhinos.players.map((p) => p.id).reverse() };
+    s.act('host', { t: 'setLineup', lineup: l });
+    s.wait(QUICK_SETUP_MS - 1);
+    expect(s.state.phase).toBe('setup');
+    s.wait(1);
+    expect(s.state.phase).toBe('toss');
+    expect(s.state.host).toMatchObject({ team: rhinos, lineup: l });
+    expect(PRESET_TEAMS).toContainEqual(s.state.guest!.team);
+  });
+
+  it('gives an absent-minded player each sample team about as often', () => {
+    const seen = new Map<string, number>();
+    for (let seed = 1; seed <= 300; seed++) {
+      const s = quick(seed);
+      s.wait(QUICK_SETUP_MS);
+      const id = s.state.guest!.team!.id;
+      seen.set(id, (seen.get(id) ?? 0) + 1);
+    }
+    expect(seen.size).toBe(PRESET_TEAMS.length);
+    for (const n of seen.values()) expect(n).toBeGreaterThan(20);
+  });
+
+  it('closes if someone has gone when the minute is up', () => {
+    const s = quick();
+    s.disconnect('guest');
+    s.wait(QUICK_SETUP_MS);
+    expect(s.state.phase).toBe('closed');
+  });
+
+  it('closes if the one who started it never arrives', () => {
+    const s = new Sim(1, 'quick');
+    s.connect('guest');
+    expect(s.state.phase).toBe('setup');
+    s.wait(QUICK_SETUP_MS);
+    expect(s.state.phase).toBe('closed');
+  });
+
+  it('closes when either leaves before the match, and is a forfeit after', () => {
+    for (const seat of ['host', 'guest'] as const) {
+      const s = quick();
+      s.act(seat, { t: 'leave' });
+      expect(s.state).toMatchObject({ phase: 'closed', deadline: null });
+      const t = quick();
+      t.wait(QUICK_SETUP_MS);
+      t.act(seat, { t: 'leave' });
+      expect(t.state.phase).toBe('closed');
+    }
+    const p = quick();
+    p.wait(QUICK_SETUP_MS);
+    p.wait(TOSS_MS);
+    p.wait(TOSS_MS);
+    p.act('guest', { t: 'leave' });
+    expect(finishedMatch(p.state)!.end).toEqual({ kind: 'forfeit', loser: 'guest' });
+  });
+
+  it('plays itself to the end, and can be played again', () => {
+    const s = quick();
+    let guard = 0;
+    while (s.state.phase !== 'finished' && guard++ < 500) {
+      s.now = nextWake(s.state)!;
+      s.tick();
+    }
+    expect(finishedMatch(s.state)!.match.settings.overs).toBe(5);
+    s.act('host', { t: 'rematch' });
+    s.act('guest', { t: 'rematch' });
+    expect(s.state).toMatchObject({ phase: 'setup', deadline: s.now + QUICK_SETUP_MS });
+  });
+});
+
 describe('random play', () => {
   it('never breaks, whatever players and connections do', () => {
     const seats: SeatId[] = ['host', 'guest'];
     const phases = new Set<string>();
-    for (let seed = 1; seed <= 120; seed++) {
-      const s = new Sim(seed);
+    for (let seed = 1; seed <= 150; seed++) {
+      const s = new Sim(seed, (['private', 'open', 'quick'] as const)[seed % 3]);
       const r = seeded(seed * 7919);
       const any = <T,>(xs: T[]): T => xs[Math.floor(r() * xs.length)];
       for (let i = 0; i < 250; i++) {
@@ -861,7 +1019,7 @@ describe('random play', () => {
           { t: 'setSettings', overs: 1 + Math.floor(r() * 3) }, { t: 'callToss', call: 'heads' },
           { t: 'chooseInnings', choice: any(['bat', 'bowl']) }, { t: 'chooseBowler', playerId: any(players).id },
           { t: 'chooseBatter', playerId: any(players).id }, { t: 'roll' }, { t: 'roll' }, { t: 'setAuto', what: any(['roll', 'batter', 'bowler']), on: r() < 0.5 },
-          { t: 'claimWin' }, { t: 'rematch' },
+          { t: 'claimWin' }, { t: 'rematch' }, { t: 'setOpen', on: r() < 0.5 },
           ...(r() < 0.02 ? [{ t: 'leave' as const }, { t: 'removeGuest' as const }] : []),
         ];
         try {
@@ -879,7 +1037,8 @@ describe('random play', () => {
           const here = state.host.connected && state.guest!.connected;
           expect(currentTurn(state)).not.toBeNull();
           expect(state.deadline !== null).toBe(here);
-        } else expect(state.deadline).toBeNull();
+        } else if (state.access === 'quick' && state.phase === 'setup') expect(state.deadline).not.toBeNull();
+        else expect(state.deadline).toBeNull();
         if (state.phase === 'finished') expect(state.match!.result).not.toBeNull();
         if (state.phase === 'playing') expect(s.client).toEqual(state.match);
       }

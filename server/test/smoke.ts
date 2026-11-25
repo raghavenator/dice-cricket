@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { PRESET_TEAMS } from '../../src/data/presets';
 import type { MatchState } from '../../src/engine/types';
 import { applyEvent, digest } from '../../src/online/events';
-import { PROTOCOL_VERSION, type ClientMessage, type RoomResults, type RoomView, type ServerMessage } from '../../src/online/protocol';
+import { PROTOCOL_VERSION, type ClientMessage, type LobbyRoom, type RoomResults, type RoomView, type ServerMessage } from '../../src/online/protocol';
 
 const BASE = process.env.SERVER ?? 'http://localhost:8787';
 const ORIGIN = process.env.ORIGIN ?? 'http://localhost:5179';
@@ -23,13 +23,36 @@ async function until(what: string, test: () => unknown, ms = 15_000) {
   }
 }
 
-async function create(tok: string, nickname = 'Raj', origin: string | null = ORIGIN) {
+async function create(tok: string, nickname = 'Raj', origin: string | null = ORIGIN, open = false) {
   const res = await fetch(`${BASE}/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
-    body: JSON.stringify({ v: PROTOCOL_VERSION, token: tok, nickname }),
+    body: JSON.stringify({ v: PROTOCOL_VERSION, token: tok, nickname, open }),
   });
   return { status: res.status, body: (await res.json()) as { code?: string; error?: string } };
+}
+
+async function ask<T>(path: string, tok: string, body: object = {}): Promise<T> {
+  const res = await fetch(BASE + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+    body: JSON.stringify({ v: PROTOCOL_VERSION, token: tok, ...body }),
+  });
+  check(res.status === 200, `${path} status ${res.status}`);
+  return (await res.json()) as T;
+}
+
+const listed = async (code: string, tok: string) =>
+  (await ask<{ rooms: LobbyRoom[] }>('/lobby', tok)).rooms.find((r) => r.code === code);
+const quick = async (tok: string, nickname: string, current?: string) =>
+  (await ask<{ code: string }>('/quick', tok, { nickname, current })).code;
+
+async function eventually(what: string, test: () => Promise<unknown>, ms = 10_000) {
+  const end = Date.now() + ms;
+  while (!(await test())) {
+    if (Date.now() > end) throw new Error(`TIMED OUT: ${what}`);
+    await sleep(250);
+  }
 }
 
 async function missed(code: string, tok: string): Promise<RoomResults> {
@@ -42,19 +65,31 @@ async function missed(code: string, tok: string): Promise<RoomResults> {
   return (await res.json()) as RoomResults;
 }
 
+/** Times a turn was overdue and the server had to be reminded, as browsers do. Should stay at 0. */
+let nudges = 0;
+
 class Player {
   ws!: WebSocket;
   view: RoomView | null = null;
   match: MatchState | null = null;
   seq = 0;
   events = 0;
+  offset = 0;
   errors: string[] = [];
   fatal: string | null = null;
   open = false;
 
   constructor(readonly code: string, readonly tok: string, readonly nickname: string) {
     this.dial();
-    setInterval(() => this.ws.readyState === 1 && this.ws.send('ping'), 10_000);
+    setInterval(() => {
+      if (this.ws.readyState !== 1) return;
+      this.ws.send('ping');
+      const c = this.open ? this.view?.clock : null;
+      if (c?.deadline && !c.paused && Date.now() + this.offset > c.deadline + 2500) {
+        nudges++;
+        this.send({ t: 'sync' });
+      }
+    }, 5000);
   }
   dial() {
     this.open = false;
@@ -82,8 +117,10 @@ class Player {
       this.seq = m.seq;
       this.events++;
       this.view!.clock = m.clock;
+      this.offset = m.clock.now - Date.now();
     } else {
       this.view = m.view;
+      this.offset = m.view.clock.now - Date.now();
       if (m.t === 'snapshot') {
         this.match = m.match;
         this.seq = m.view.seq;
@@ -166,7 +203,8 @@ const tests: Record<string, () => Promise<void>> = {
     const { host, guest } = await toPlay(1);
     check(host.match!.teams[0].name === 'Harbour Hawks (Raj)', 'teams told apart');
     await playOn([host, guest], () => host.view!.phase === 'finished' && guest.view!.phase === 'finished');
-    check(host.events > 12 && host.events === guest.events, 'both saw every event');
+    // Every event, in order, and the same for both. A one-over match can be as short as 8 (two bowlers, six balls).
+    check(host.events >= 8 && host.events === host.seq && guest.events === guest.seq && host.seq === guest.seq, `both saw every event: ${host.events}/${host.seq} and ${guest.events}/${guest.seq}`);
     check(JSON.stringify(host.match) === JSON.stringify(guest.match), 'identical scorecards');
     check(host.match!.result, 'has a result');
     host.send({ t: 'rematch' });
@@ -252,6 +290,94 @@ const tests: Record<string, () => Promise<void>> = {
     check(!none.live && none.results.length === 0, 'unknown room');
   },
 
+  async 'lists open rooms, and only while they wait'() {
+    const [h, g, e] = [token('host'), token('guest'), token('eve')];
+    const { body } = await create(h, 'Open Raj', ORIGIN, true);
+    const code = body.code!;
+    check(!(await listed(code, g)), 'not listed before its maker connects');
+    const host = new Player(code, h, 'Open Raj');
+    await eventually('listed', () => listed(code, g));
+    const entry = (await listed(code, g))!;
+    check(entry.nickname === 'Open Raj' && entry.overs === 5 && Object.keys(entry).length === 4, 'only what is needed');
+    check(!(await listed(code, h)), 'not shown to its own maker');
+    host.send({ t: 'setSettings', overs: 2 });
+    await eventually('overs updated', async () => (await listed(code, g))?.overs === 2);
+    host.send({ t: 'setOpen', on: false });
+    await eventually('private now', async () => !(await listed(code, g)));
+    host.send({ t: 'setOpen', on: true });
+    await eventually('open again', () => listed(code, g));
+    host.ws.close();
+    await eventually('off the list when its maker goes', async () => !(await listed(code, g)));
+    host.dial();
+    await eventually('and back', () => listed(code, g));
+    const guest = new Player(code, g, 'Sam');
+    await until('joined', () => guest.view?.phase === 'setup');
+    await eventually('off the list once full', async () => !(await listed(code, e)));
+    guest.send({ t: 'setTeam', team: { ...PRESET_TEAMS[0], id: 't-mine', name: 'Mine' } });
+    await until('custom refused', () => guest.errors.some((x) => /sample teams/.test(x)));
+    host.send({ t: 'removeGuest' });
+    await eventually('listed again after removing', () => listed(code, e));
+    host.send({ t: 'leave' });
+    await eventually('gone', async () => !(await listed(code, e)));
+    const secret = await create(token('private'), 'Quiet');
+    const p = new Player(secret.body.code!, token('x'), 'X');
+    await sleep(800);
+    check(!(await listed(secret.body.code!, e)), 'private rooms are never listed');
+    p.ws.close();
+  },
+
+  async 'pairs strangers, even when they all ask at once'() {
+    const toks = Array.from({ length: 5 }, (_, i) => token(`quick${i}`));
+    const codes = await Promise.all(toks.map((t, i) => quick(t, `Q${i}`)));
+    const players = codes.map((c, i) => new Player(c, toks[i], `Q${i}`));
+    // As browsers do, anyone left waiting keeps asking.
+    await eventually('two pairs and one waiting', async () => {
+      for (const p of players) {
+        if (p.view?.phase !== 'waiting') continue;
+        const c = await quick(p.tok, p.nickname, p.code);
+        if (c !== p.code) {
+          p.send({ t: 'leave' });
+          (p as { code: string }).code = c;
+          p.view = null;
+          p.dial();
+        }
+      }
+      await sleep(300);
+      const refused = players.find((p) => p.fatal);
+      check(!refused, `sent to a room that refused: ${refused?.fatal}`);
+      return players.filter((p) => p.view?.phase === 'setup').length === 4 && players.every((p) => p.view);
+    }, 30_000);
+    const rooms = new Map<string, number>();
+    for (const p of players) rooms.set(p.code, (rooms.get(p.code) ?? 0) + 1);
+    check([...rooms.values()].sort().join() === '1,2,2', `rooms ${[...rooms.values()].join()}`);
+    const [a] = players.filter((p) => p.view!.phase === 'setup');
+    check(a.view!.overs === 5 && a.view!.access === 'quick' && a.view!.clock.deadline !== null, 'five overs with a clock');
+    const b = players.find((p) => p !== a && p.code === a.code)!;
+    a.send({ t: 'leave' });
+    await until('told their opponent left', () => b.fatal === 'This room has closed');
+    for (const p of players) if (p.open && !p.fatal) p.send({ t: 'leave' });
+  },
+
+  async 'starts a quick match by itself when nobody presses anything'() {
+    const [x, y] = [token('x'), token('y')];
+    // Earlier tests may have left someone waiting, so ask until these two are together.
+    const px = new Player(await quick(x, 'Xan'), x, 'Xan');
+    await until('in a room', () => px.view || px.fatal);
+    check(px.view, `sent to a room that refused: ${px.fatal}`);
+    const py = new Player(await quick(y, 'Yas'), y, 'Yas');
+    await until('paired', () => px.view!.phase === 'setup' && py.view?.phase === 'setup' && px.code === py.code, 20_000);
+    await until('toss after a minute', () => px.view!.phase === 'toss', 70_000);
+    try {
+      await until('match under way', () => px.seq > 5 && py.seq > 5, 70_000);
+    } catch (e) {
+      const at = (p: Player) => JSON.stringify([p.code, p.seq, p.ws.readyState, p.fatal, p.errors, p.view?.phase, p.view?.clock]);
+      throw new Error(`${(e as Error).message} ${at(px)} ${at(py)}`);
+    }
+    check(JSON.stringify(px.match) === JSON.stringify(py.match) || px.seq !== py.seq, 'in step');
+    px.send({ t: 'leave' });
+    await until('forfeit', () => py.view!.phase === 'finished');
+  },
+
   async 'survives the server restarting mid-match'() {
     const { host, guest } = await toPlay(2);
     await playOn([host, guest], () => host.seq >= 6);
@@ -290,4 +416,5 @@ for (const [name, run] of Object.entries(tests)) {
     console.log(`FAIL  ${name}: ${(e as Error).message}`);
   }
 }
+if (nudges) console.log(`NOTE  the server had to be reminded of an overdue turn ${nudges} time(s)`);
 process.exit(failed ? 1 : 0);

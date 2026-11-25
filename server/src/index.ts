@@ -1,29 +1,19 @@
-import {
-  CODE_ALPHABET, CODE_LENGTH, MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseToken,
-} from '../../src/online/protocol';
+import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseToken } from '../../src/online/protocol';
 import { OnlineError, asObject, parseNickname } from '../../src/online/validate';
 import { ownerIdFor } from './identity';
+import type { Lobby } from './lobby-object';
 import type { Room } from './room-object';
 
+export { Lobby } from './lobby-object';
 export { Room } from './room-object';
 
 export interface Env {
   ROOMS: DurableObjectNamespace<Room>;
+  LOBBY: DurableObjectNamespace<Lobby>;
   CREATE_LIMIT: RateLimit;
   JOIN_LIMIT: RateLimit;
   ALLOWED_ORIGINS: string;
-}
-
-/** Random code, without favouring any letter. */
-function randomCode(): string {
-  const n = CODE_ALPHABET.length;
-  const limit = 256 - (256 % n);
-  let code = '';
-  while (code.length < CODE_LENGTH) {
-    const [b] = crypto.getRandomValues(new Uint8Array(1));
-    if (b < limit) code += CODE_ALPHABET[b % n];
-  }
-  return code;
+  CREATE_MAX: string;
 }
 
 /** The page's origin if it may use this server, else null. */
@@ -55,16 +45,6 @@ async function readPlayer(req: Request): Promise<{ o: Record<string, unknown>; o
   return { o, ownerId: await ownerIdFor(parseToken(o.token)) };
 }
 
-async function createRoom(req: Request, env: Env): Promise<string> {
-  const { o, ownerId } = await readPlayer(req);
-  const nickname = parseNickname(o.nickname);
-  for (let i = 0; i < 5; i++) {
-    const code = randomCode();
-    if (await env.ROOMS.get(env.ROOMS.idFromName(code)).create(code, { ownerId, nickname })) return code;
-  }
-  throw new Error('No free room code');
-}
-
 export default {
   async fetch(req, env): Promise<Response> {
     const { pathname, protocol, hostname } = new URL(req.url);
@@ -79,34 +59,35 @@ export default {
     const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
 
     const results = /^\/rooms\/([^/]+)\/results$/.exec(pathname);
-    if ((pathname === '/rooms' || results) && req.method === 'OPTIONS') {
-      headers['Access-Control-Allow-Methods'] = 'POST';
-      headers['Access-Control-Allow-Headers'] = 'Content-Type';
-      return new Response(null, { status: 204, headers });
-    }
-    if (pathname === '/rooms' && req.method === 'POST') {
-      const { success } = await env.CREATE_LIMIT.limit({ key: ip });
-      if (!success) return reply(429, { error: 'Too many rooms. Try again in a minute.' });
-      try {
-        return reply(200, { code: await createRoom(req, env) });
-      } catch (e) {
-        if (e instanceof OnlineError) return reply(400, { error: e.message });
-        console.error(e);
-        return reply(500, { error: 'Could not create a room. Try again.' });
+    if (results || pathname === '/rooms' || pathname === '/lobby' || pathname === '/quick') {
+      if (req.method === 'OPTIONS') {
+        headers['Access-Control-Allow-Methods'] = 'POST';
+        headers['Access-Control-Allow-Headers'] = 'Content-Type';
+        return new Response(null, { status: 204, headers });
       }
-    }
-    if (results && req.method === 'POST') {
-      const code = normalizeCode(results[1]);
-      if (!code) return reply(404, { error: 'Room not found' });
-      const { success } = await env.JOIN_LIMIT.limit({ key: ip });
+      if (req.method !== 'POST') return reply(404, { error: 'Not found' });
+      const limiter = pathname === '/rooms' ? env.CREATE_LIMIT : env.JOIN_LIMIT;
+      const { success } = await limiter.limit({ key: ip });
       if (!success) return reply(429, { error: 'Too many attempts. Try again in a minute.' });
+      const lobby = env.LOBBY.get(env.LOBBY.idFromName('main'));
+      const made = (code: string | null) =>
+        code ? reply(200, { code }) : reply(429, { error: 'You have made a lot of rooms. Try again in a few minutes.' });
       try {
-        const { ownerId } = await readPlayer(req);
-        return reply(200, await env.ROOMS.get(env.ROOMS.idFromName(code)).missed(ownerId));
+        const { o, ownerId } = await readPlayer(req);
+        if (pathname === '/lobby') return reply(200, { rooms: await lobby.list(ownerId) });
+        if (results) {
+          const code = normalizeCode(results[1]);
+          if (!code) return reply(404, { error: 'Room not found' });
+          return reply(200, await env.ROOMS.get(env.ROOMS.idFromName(code)).missed(ownerId));
+        }
+        const who = { ownerId, nickname: parseNickname(o.nickname) };
+        if (pathname === '/rooms') return made(await lobby.create(who, o.open === true ? 'open' : 'private', ip));
+        const current = typeof o.current === 'string' ? normalizeCode(o.current) : null;
+        return made(await lobby.quick(who, ip, current));
       } catch (e) {
         if (e instanceof OnlineError) return reply(400, { error: e.message });
         console.error(e);
-        return reply(500, { error: 'Something went wrong' });
+        return reply(500, { error: 'Something went wrong. Try again.' });
       }
     }
     const ws = /^\/rooms\/([^/]+)\/ws$/.exec(pathname);

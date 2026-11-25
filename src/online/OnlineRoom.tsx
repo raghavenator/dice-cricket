@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TeamCard } from '../components/SettingsForm';
+import { PRESET_TEAMS } from '../data/presets';
 import { AutoToggles } from './AutoToggles';
 import { LineupEditor } from './LineupEditor';
 import { OnlineMatch } from './OnlineMatch';
+import { QuickMatchButton } from './QuickMatchButton';
+import { getGuest } from './guest';
 import { lineupProblem, type Lineup } from './lineup';
-import { goHome, inviteLink } from './nav';
+import { goHome, goRoom, inviteLink } from './nav';
 import { recallLineup, rememberLineup } from './onlineDb';
 import type { RoomView, SeatView } from './protocol';
 import { loadTeams, type TeamChoice } from './teams';
 import { Countdown } from './time';
-import { useOnline } from './useOnlineStore';
+import { quickMatch, useOnline } from './useOnlineStore';
 import { MAX_OVERS, MIN_OVERS } from './validate';
 
 const OVERS = [1, 2, 5, 10, 20];
+/** How often someone waiting for a quick match asks whether there is anyone to join instead. */
+const LOOK_AGAIN_MS = 8000;
+const SAMPLE_TEAMS: TeamChoice[] = PRESET_TEAMS.map((team) => ({ team, problem: null }));
 
 /** Connects to a room for as long as it is on screen, and shows whatever stage it is at. */
 export function OnlineRoom({ code }: { code: string }) {
@@ -35,11 +41,14 @@ export function OnlineRoom({ code }: { code: string }) {
   if (fatal && !showMatch)
     body = (
       <div className="screen on-narrow">
-        <h2>{fatal}</h2>
+        <h2>{view?.access === 'quick' && fatal === 'This room has closed' ? 'Your opponent left' : fatal}</h2>
         {fatal === 'Room not found' && (
           <p className="muted">Check the code with your friend. Rooms close after 30 minutes if nobody joins.</p>
         )}
-        <button className="btn btn-primary" onClick={goHome}>Online home</button>
+        <div className="btn-row">
+          {view?.access === 'quick' && <QuickMatchButton label="Find another match" before={() => getGuest().nickname} />}
+          <button className="btn" onClick={goHome}>Online home</button>
+        </div>
       </div>
     );
   else if (!view)
@@ -141,10 +150,32 @@ function Setup({ view }: { view: RoomView }) {
   const isHost = view.you === 'host';
   const me = isHost ? view.host : view.guest!;
   const opponent = isHost ? view.guest : view.host;
+  const quick = view.access === 'quick';
+  const strangers = view.access !== 'private';
 
   useEffect(() => {
-    void loadTeams().then(setTeams);
-  }, []);
+    let here = true;
+    if (strangers) setTeams(SAMPLE_TEAMS);
+    else void loadTeams().then((t) => here && setTeams(t));
+    return () => {
+      here = false;
+    };
+  }, [strangers]);
+
+  // Two people can each end up waiting in a room of their own. Asking again brings the later one to the earlier one.
+  const looking = quick && view.phase === 'waiting';
+  useEffect(() => {
+    if (!looking) return;
+    const look = async () => {
+      const code = await quickMatch(getGuest().nickname, view.code).catch(() => view.code);
+      const now = useOnline.getState().view;
+      if (code === view.code || now?.code !== view.code || now.phase !== 'waiting') return;
+      await useOnline.getState().leave();
+      goRoom(code);
+    };
+    const t = window.setInterval(() => void look(), LOOK_AGAIN_MS);
+    return () => clearInterval(t);
+  }, [looking, view.code]);
 
   const pickTeam = async ({ team }: TeamChoice) => {
     if (me.ready || team.id === view.team?.id) return;
@@ -168,7 +199,7 @@ function Setup({ view }: { view: RoomView }) {
   const leave = () => void useOnline.getState().leave().then(goHome);
 
   const waitingOn = !opponent
-    ? 'Waiting for your opponent to join. You can choose your team now.'
+    ? quick ? 'Looking for an opponent. You can choose your team now.' : 'Waiting for your opponent to join. You can choose your team now.'
     : !view.team
       ? 'Choose your team.'
       : problem ?? (me.ready ? `Waiting for ${opponent.nickname} to get ready…` : opponent.ready ? `${opponent.nickname} is ready. Press Ready to start.` : 'Set your lineup, then press Ready.');
@@ -176,9 +207,9 @@ function Setup({ view }: { view: RoomView }) {
   return (
     <div className="screen">
       <div className="title-row">
-        <h2>{opponent ? 'Match setup' : 'Invite a friend'}</h2>
+        <h2>{opponent ? 'Match setup' : quick ? 'Looking for an opponent…' : strangers ? 'Open room' : 'Invite a friend'}</h2>
         <div className="btn-row">
-          {isHost && opponent && (
+          {isHost && opponent && !quick && (
             <button
               className="btn btn-ghost danger"
               onClick={() => confirm(`Remove ${opponent.nickname} from the room? They won't be able to come back.`) && send({ t: 'removeGuest' })}
@@ -190,7 +221,22 @@ function Setup({ view }: { view: RoomView }) {
         </div>
       </div>
 
-      {!opponent && <Invite code={view.code} />}
+      {!opponent && !quick && <Invite code={view.code} />}
+      {!opponent && isHost && !quick && (
+        <div className="card on-pad on-invite">
+          <span className="muted">
+            {strangers
+              ? 'Anyone can join from the list of open rooms. You both play with a sample team.'
+              : 'Only people with the code or link can join.'}
+          </span>
+          <button className="btn" onClick={() => send({ t: 'setOpen', on: !strangers })}>{strangers ? 'Make it private' : 'Open it to anyone'}</button>
+        </div>
+      )}
+      {!opponent && quick && (
+        <div className="card on-pad">
+          <p className="muted on-flat">5 overs, sample teams. The match starts 60 seconds after someone joins, or as soon as you are both ready.</p>
+        </div>
+      )}
 
       <div className="on-two">
         <SeatCard seat={me} label={isHost ? 'You (host)' : 'You'} />
@@ -200,7 +246,7 @@ function Setup({ view }: { view: RoomView }) {
       <div className="form">
         <div className="field">
           <label>Overs per side</label>
-          {isHost ? (
+          {isHost && !quick ? (
             <div className="seg">
               {OVERS.map((n) => (
                 <button key={n} className={`seg-btn ${n === view.overs ? 'seg-on' : ''}`} onClick={() => send({ t: 'setSettings', overs: n })}>
@@ -222,7 +268,7 @@ function Setup({ view }: { view: RoomView }) {
               </label>
             </div>
           ) : (
-            <div><b>{view.overs}</b> <span className="muted small">(the host decides)</span></div>
+            <div><b>{view.overs}</b> <span className="muted small">{quick ? '(quick match)' : '(the host decides)'}</span></div>
           )}
         </div>
       </div>
@@ -241,7 +287,10 @@ function Setup({ view }: { view: RoomView }) {
           </div>
         ))}
       </div>
-      <p className="hint">Make your own in <a href="./index.html">Teams</a> on the main game. Changes below are for this match only.</p>
+      <p className="hint">
+        {strangers ? 'Only the sample teams can be used against strangers. ' : <>Make your own in <a href="./index.html">Teams</a> on the main game. </>}
+        Changes below are for this match only.
+      </p>
 
       {view.team && view.lineup && (
         <LineupEditor
@@ -264,7 +313,10 @@ function Setup({ view }: { view: RoomView }) {
       )}
 
       <div className="on-ready-bar">
-        <span className={problem && view.team ? 'on-error' : 'muted'}>{waitingOn}</span>
+        <span className={problem && view.team ? 'on-error' : 'muted'}>
+          {waitingOn}
+          {view.clock.deadline !== null && <> Starts in <Countdown to={view.clock.deadline} />.</>}
+        </span>
         {me.ready ? (
           <button className="btn" onClick={() => send({ t: 'unready' })}>Edit</button>
         ) : (

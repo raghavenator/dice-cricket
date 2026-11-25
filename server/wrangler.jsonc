@@ -9,11 +9,19 @@
   // The built game with online play switched on, so that one address serves both the page and the rooms.
   "assets": {
     "directory": "../dist-online",
-    "run_worker_first": ["/rooms", "/rooms/*"]
+    "run_worker_first": ["/rooms", "/rooms/*", "/lobby", "/quick"]
   },
-  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
-  // Creating rooms and opening connections, per person (IP address).
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "Room" },
+      { "name": "LOBBY", "class_name": "Lobby" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["Lobby"] }
+  ],
+  // A first, approximate limit per person (IP address). The Lobby counts new rooms exactly.
   "ratelimits": [
     { "name": "CREATE_LIMIT", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } },
     { "name": "JOIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
@@ -21,7 +29,9 @@
   "vars": {
     // Other sites whose pages may use the rooms, separated by commas. The page at this same address always may.
     // `npm run dev` adds localhost for testing, so it is never allowed on the published server.
-    "ALLOWED_ORIGINS": ""
+    "ALLOWED_ORIGINS": "",
+    // New rooms per person in ten minutes.
+    "CREATE_MAX": "30"
   },
   "dev": { "port": 8787, "ip": "127.0.0.1" }
 }

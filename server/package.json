@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --var ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5179",
+    "dev": "wrangler dev --var ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5179 CREATE_MAX:1000",
     "check": "tsc --noEmit",
     "test": "cd .. && vite-node server/test/smoke.ts",
     "build": "cd .. && npm run build -- --mode online --outDir dist-online --emptyOutDir && node server/copy-headers.mjs",

@@ -4,7 +4,7 @@ import { parseLineup, type Lineup } from './lineup';
 import { OnlineError, asObject, parseId, parseNickname, parseSettings, parseTeam } from './validate';
 
 /** Raise whenever messages, or the engine rules behind them, change. Old tabs are told to refresh. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export const MAX_MESSAGE_BYTES = 16 * 1024;
 
@@ -22,6 +22,20 @@ export function normalizeCode(input: string): string | null {
 }
 
 // ---------- Shared shapes ----------
+
+/**
+ * Who can come in. "private": only people with the code. "open": also anyone, from the list. "quick": made by Quick
+ * match for two strangers. In the last two, only the sample teams may be used.
+ */
+export type Access = 'private' | 'open' | 'quick';
+
+/** An open room, as shown in the list. */
+export interface LobbyRoom {
+  code: string;
+  nickname: string;
+  overs: number;
+  since: number;
+}
 
 export type SeatId = 'host' | 'guest';
 export type Phase = 'waiting' | 'setup' | 'toss' | 'playing' | 'finished' | 'closed';
@@ -102,6 +116,7 @@ export interface SeatView {
 
 export interface RoomView {
   code: string;
+  access: Access;
   phase: Phase;
   you: SeatId;
   overs: number;
@@ -127,6 +142,7 @@ export type ClientMessage =
   | { t: 'leave' }
   | { t: 'removeGuest' }
   | { t: 'setSettings'; overs: number }
+  | { t: 'setOpen'; on: boolean }
   | { t: 'setTeam'; team: Team }
   | { t: 'setLineup'; lineup: Lineup }
   | { t: 'ready' }
@@ -210,6 +226,9 @@ export function parseClientMessage(raw: string): ClientMessage {
       return { t: 'chooseBowler', playerId: parseOwnedId(o.playerId) };
     case 'chooseBatter':
       return { t: 'chooseBatter', playerId: parseOwnedId(o.playerId) };
+    case 'setOpen':
+      if (typeof o.on !== 'boolean') throw new OnlineError('Message is not valid');
+      return { t: 'setOpen', on: o.on };
     case 'setAuto':
       if (typeof o.on !== 'boolean') throw new OnlineError('Message is not valid');
       return { t: 'setAuto', what: pick(o.what, 'roll', 'batter', 'bowler'), on: o.on };
