@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { MatchupPanel } from '../components/MatchupPanel';
+import { StoryExport } from '../components/StoryExport';
 import { SettingsForm, TeamCard } from '../components/SettingsForm';
 import {
   addLeg, legLabel, legStanding, nextSeriesFixture, seriesOutcome, type Leg, type Series, type TeamLabel,
@@ -279,6 +280,7 @@ export function SeriesHub({ id }: { id: string }) {
   const simFixture = useGame((st) => st.simSeriesFixture);
   const { team, label } = useTeamLabel();
   const [busy, setBusy] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
 
   if (!s) {
     return (
@@ -320,8 +322,13 @@ export function SeriesHub({ id }: { id: string }) {
             {label(s.homeId).name} (host) v {label(s.awayId).name} · {legSummary(s.legs)}
           </p>
         </div>
-        <button className="btn" onClick={() => go({ name: 'stats', seriesId: s.id })}>📊 Series stats</button>
+        <div className="btn-row">
+          <button className="btn" onClick={() => go({ name: 'stats', seriesId: s.id })}>📊 Series stats</button>
+          <button className={`btn ${storyOpen ? 'btn-on' : ''}`} aria-expanded={storyOpen} onClick={() => setStoryOpen((o) => !o)}>📖 Story export</button>
+        </div>
       </div>
+
+      {storyOpen && <StoryExport series={s} />}
 
       {(doneLegs.length > 0 || outcome.complete) && (
         <div className="banners">

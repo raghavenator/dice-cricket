@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsForm, TeamCard } from '../components/SettingsForm';
+import { StoryExport } from '../components/StoryExport';
 import { leagueLabel, nextFixture, pointsTable, STRUCTURE_LABEL, type Structure, type Tournament } from '../engine/tournament';
 import type { MatchSettings } from '../engine/types';
 import { useGame } from '../store/useGameStore';
@@ -171,6 +172,7 @@ export function TournamentHub({ id }: { id: string }) {
   const startMatch = useGame((s) => s.startMatch);
   const simFixture = useGame((s) => s.simFixture);
   const [busy, setBusy] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
 
   if (!t) {
     return (
@@ -218,8 +220,13 @@ export function TournamentHub({ id }: { id: string }) {
             {t.settings.bowlerMode === 'manual' ? 'manual bowlers' : 'auto bowlers'}
           </p>
         </div>
-        <button className="btn" onClick={() => go({ name: 'stats', tournamentId: t.id })}>📊 Tournament stats</button>
+        <div className="btn-row">
+          <button className="btn" onClick={() => go({ name: 'stats', tournamentId: t.id })}>📊 Tournament stats</button>
+          <button className={`btn ${storyOpen ? 'btn-on' : ''}`} aria-expanded={storyOpen} onClick={() => setStoryOpen((o) => !o)}>📖 Story export</button>
+        </div>
       </div>
+
+      {storyOpen && <StoryExport tournament={t} />}
 
       {t.status === 'complete' && (
         <div className="champion" style={{ ['--team' as string]: team(t.championId)?.color ?? '#888' }}>

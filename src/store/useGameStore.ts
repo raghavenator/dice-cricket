@@ -5,6 +5,7 @@ import { createMatch, simulate } from '../engine/match';
 import { createTournament, recordResult, type Structure, type Tournament } from '../engine/tournament';
 import { createSeries, recordSeriesResult, type Leg, type Series } from '../engine/series';
 import type { Format, MatchSettings, MatchState, Team } from '../engine/types';
+import type { StoryDetail } from '../engine/story';
 
 export type Screen =
   | { name: 'home' }
@@ -37,6 +38,9 @@ export interface Prefs {
   autoDelay: number; // ms between auto rolls
   rollSpeed: RollSpeed;
   lastSettings: MatchSettings;
+  storyDetail?: StoryDetail;
+  storyPrompt?: string;
+  storyIncludePrompt?: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {

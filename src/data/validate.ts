@@ -288,6 +288,9 @@ export function prefs(v: unknown): Partial<Prefs> | undefined {
   tryField('autoDelay', int(0, 10000));
   tryField('rollSpeed', rollSpeed);
   tryField('lastSettings', settings);
+  tryField('storyDetail', oneOf<'full' | 'compact'>('full', 'compact'));
+  tryField('storyPrompt', str(5000));
+  tryField('storyIncludePrompt', bool);
   return Object.keys(out).length ? out : undefined;
 }
 

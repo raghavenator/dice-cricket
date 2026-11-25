@@ -6,6 +6,7 @@ import type { Series } from '../engine/series';
 import { aggregate, battingCard, bowlingCard } from '../engine/stats';
 import type { Prefs } from '../store/useGameStore';
 import * as V from './validate';
+import { downloadText } from './download';
 import { BackupError } from './validate';
 
 export { BackupError };
@@ -57,16 +58,7 @@ export async function exportBackup(): Promise<Backup> {
   };
 }
 
-export function downloadBackup(b: Backup, filename: string) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(b)], { type: 'application/json' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+export const downloadBackup = (b: Backup, filename: string) => downloadText(JSON.stringify(b), filename);
 
 export const backupFilename = (label = 'backup', when = new Date()) =>
   `dice-cricket-${label}-${when.toLocaleDateString('en-CA')}.json`;
