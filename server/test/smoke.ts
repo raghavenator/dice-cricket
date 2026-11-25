@@ -7,7 +7,7 @@ import { applyEvent, digest } from '../../src/online/events';
 import { PROTOCOL_VERSION, type ClientMessage, type RoomResults, type RoomView, type ServerMessage } from '../../src/online/protocol';
 
 const BASE = process.env.SERVER ?? 'http://localhost:8787';
-const ORIGIN = 'http://localhost:5179';
+const ORIGIN = process.env.ORIGIN ?? 'http://localhost:5179';
 const token = (name: string) => `${name}-${crypto.randomUUID()}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

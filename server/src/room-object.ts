@@ -15,6 +15,13 @@ const MAX_RESULTS = 20;
 const MAX_SOCKETS = 12;
 /** Browsers ping every 5 seconds. One that has been silent this long has gone, even if nobody said so. */
 const STALE_MS = 35_000;
+/**
+ * Alarms are set at least this far ahead. On Cloudflare, an alarm set for the same millisecond as the one now running
+ * is taken to be that one, and is lost or badly delayed.
+ */
+const ALARM_LEAD_MS = 10;
+/** More moves than could ever be due at once. */
+const MAX_CATCH_UP = 20;
 /** Messages: a burst of this many, refilled at this many a second. */
 const BURST = 20;
 const PER_SECOND = 5;
@@ -93,6 +100,9 @@ export class Room extends DurableObject<Env> {
         this.refuse(ws, 'Room not found');
         return;
       }
+      // In case an alarm is late. Any message will do, and browsers send one when a turn is overdue.
+      this.catchUp();
+      if (!this.state) return;
       const { ownerId } = this.attachment(ws);
 
       if (msg.t === 'hello') {
@@ -152,10 +162,21 @@ export class Room extends DurableObject<Env> {
         this.gone(ws);
       }
     }
-    if (this.state) this.publish(tick(this.state, ctxNow()));
+    this.catchUp();
+    // Deletes the room if its time has come, and otherwise sets the next alarm.
+    if (this.state) this.publish({ state: this.state, events: [], send: 'none' });
   }
 
   // ---------- Helpers ----------
+
+  /** Make every move that is due. One can make the next due at once, such as an automatic bowler and then the roll. */
+  private catchUp(): void {
+    for (let i = 0; i < MAX_CATCH_UP && this.state; i++) {
+      const step = tick(this.state, ctxNow());
+      if (step.state === this.state) return;
+      this.publish(step);
+    }
+  }
 
   /** Save the new state, tell everyone what changed (`except` gets its own snapshot), and set the next alarm. */
   private publish(step: Step, except?: WebSocket): void {
@@ -213,7 +234,7 @@ export class Room extends DurableObject<Env> {
     const wake = times.length ? Math.min(...times) : null;
     if (wake === this.alarmAt) return;
     this.alarmAt = wake;
-    void (wake === null ? this.ctx.storage.deleteAlarm() : this.ctx.storage.setAlarm(wake));
+    void (wake === null ? this.ctx.storage.deleteAlarm() : this.ctx.storage.setAlarm(Math.max(wake, Date.now() + ALARM_LEAD_MS)));
   }
 
   private dropResult(id: string): void {

@@ -9,6 +9,8 @@ import { PROTOCOL_VERSION, type ClientMessage, type Clock, type RoomView, type S
 const PING_MS = 5_000;
 /** No reply to a ping for this long means the connection is dead, even if the browser has not noticed. */
 const PONG_MS = 8_000;
+/** A turn this far past its deadline means the server's timer is late, so remind it. */
+const OVERDUE_MS = 2_500;
 
 /** Where the rooms are. "same" means the same address as this page. */
 export function serverUrl(): string | null {
@@ -205,6 +207,8 @@ export const useOnline = create<OnlineState>((set, get) => {
       });
       stopPings = every(PING_MS, () => {
         if (socket !== ws || ws.readyState !== WebSocket.OPEN) return;
+        const { clock, offset } = get();
+        if (clock?.deadline && !clock.paused && Date.now() + offset > clock.deadline + OVERDUE_MS) raw({ t: 'sync' });
         if (pingedAt && Date.now() - pingedAt > PONG_MS) {
           pingedAt = 0;
           ws.reconnect();

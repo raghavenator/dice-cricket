@@ -67,12 +67,15 @@ async function createRoom(req: Request, env: Env): Promise<string> {
 
 export default {
   async fetch(req, env): Promise<Response> {
-    const { pathname } = new URL(req.url);
+    const { pathname, protocol, hostname } = new URL(req.url);
     const origin = allowedOrigin(req, env);
     const headers: Record<string, string> = { Vary: 'Origin', 'Cache-Control': 'no-store' };
     if (origin) headers['Access-Control-Allow-Origin'] = origin;
     const reply = (status: number, body: unknown) => Response.json(body, { status, headers });
     if (!origin) return reply(403, { error: 'This page may not use the game server' });
+    // The secret guest token must never travel unencrypted.
+    if (protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(hostname))
+      return reply(403, { error: 'Use https to connect' });
     const ip = req.headers.get('CF-Connecting-IP') ?? 'unknown';
 
     const results = /^\/rooms\/([^/]+)\/results$/.exec(pathname);
