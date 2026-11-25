@@ -2,9 +2,13 @@
   "name": "dice-cricket-online",
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
-  // The built game, so one address can serve both the page and the rooms. Run `npm run build` in the repo root first.
+  // One public address, and no extra addresses for old versions.
+  "workers_dev": true,
+  "preview_urls": false,
+  "send_metrics": false,
+  // The built game with online play switched on, so that one address serves both the page and the rooms.
   "assets": {
-    "directory": "../dist",
+    "directory": "../dist-online",
     "run_worker_first": ["/rooms", "/rooms/*"]
   },
   "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "Room" }] },
@@ -15,8 +19,9 @@
     { "name": "JOIN_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
   ],
   "vars": {
-    // Pages allowed to use the rooms, besides the one served from the same address.
-    "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:5179"
+    // Other sites whose pages may use the rooms, separated by commas. The page at this same address always may.
+    // `npm run dev` adds localhost for testing, so it is never allowed on the published server.
+    "ALLOWED_ORIGINS": ""
   },
-  "dev": { "port": 8787 }
+  "dev": { "port": 8787, "ip": "127.0.0.1" }
 }

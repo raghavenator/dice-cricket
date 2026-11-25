@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --var ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5179",
     "check": "tsc --noEmit",
-    "test": "cd .. && vite-node server/test/smoke.ts"
+    "test": "cd .. && vite-node server/test/smoke.ts",
+    "build": "cd .. && npm run build -- --mode online --outDir dist-online --emptyOutDir",
+    "rehearse": "npm run check && npm run build && wrangler deploy --dry-run",
+    "deploy": "npm run check && npm run build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261107.1",
