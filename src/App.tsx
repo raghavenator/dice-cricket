@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGame } from './store/useGameStore';
 import { Home } from './screens/Home';
+import { LocalSim } from './screens/LocalSim';
 import { ExhibitionSettings, ExhibitionTeams } from './screens/Exhibition';
 import { MatchScreen } from './screens/MatchScreen';
 import { TournamentHub, TournamentList, TournamentNew } from './screens/Tournaments';
@@ -27,6 +28,7 @@ export function App() {
   else {
     switch (screen.name) {
       case 'home': body = <Home />; break;
+      case 'localSim': body = <LocalSim />; break;
       case 'exTeams': body = <ExhibitionTeams />; break;
       case 'exSettings': body = <ExhibitionSettings />; break;
       case 'match': body = <MatchScreen />; break;

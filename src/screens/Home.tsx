@@ -32,25 +32,12 @@ export function Home() {
       )}
 
       <div className="mode-grid">
-        <button className="mode" onClick={() => go({ name: 'exTeams' })}>
-          <span className="mode-icon">🏏</span>
-          <span className="mode-title">Exhibition Match</span>
-          <span className="mode-desc">Pick two teams and play a single match.</span>
-        </button>
-        <button className="mode" onClick={() => go({ name: 'tournaments' })}>
-          <span className="mode-icon">🏆</span>
-          <span className="mode-title">Tournament</span>
+        <button className="mode" onClick={() => go({ name: 'localSim' })}>
+          <span className="mode-icon">🎲</span>
+          <span className="mode-title">Local Sim</span>
           <span className="mode-desc">
-            League, league + playoffs, or knockout with saved stats.
-            {active > 0 && <b> {active} in progress.</b>}
-          </span>
-        </button>
-        <button className="mode" onClick={() => go({ name: 'seriesList' })}>
-          <span className="mode-icon">🤝</span>
-          <span className="mode-title">Bilateral Series</span>
-          <span className="mode-desc">
-            Two teams, a multi-match series across one or more formats.
-            {activeSeries > 0 && <b> {activeSeries} in progress.</b>}
+            Exhibition match, tournament or bilateral series on this device.
+            {active + activeSeries > 0 && <b> {active + activeSeries} in progress.</b>}
           </span>
         </button>
         {import.meta.env.VITE_ONLINE_URL && (

@@ -36,7 +36,7 @@ export function ExhibitionTeams() {
         ))}
       </div>
       <div className="nav-row">
-        <button className="btn btn-ghost" onClick={() => go({ name: 'home' })}>← Back</button>
+        <button className="btn btn-ghost" onClick={() => go({ name: 'localSim' })}>← Local Sim</button>
         <button className="btn btn-primary" disabled={!a || !b} onClick={() => go({ name: 'exSettings' })}>
           Next: Settings →
         </button>

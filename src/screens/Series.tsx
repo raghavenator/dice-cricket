@@ -64,7 +64,7 @@ export function SeriesList() {
         })}
       </div>
       <div className="nav-row">
-        <button className="btn btn-ghost" onClick={() => go({ name: 'home' })}>← Home</button>
+        <button className="btn btn-ghost" onClick={() => go({ name: 'localSim' })}>← Local Sim</button>
       </div>
     </div>
   );

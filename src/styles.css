@@ -125,8 +125,7 @@ h3 { font-size: 1.05rem; }
 .mode:hover { transform: translateY(-2px); border-color: var(--accent); }
 .mode-icon { font-size: 2rem; }
 .mode-title { font-weight: 800; font-size: 1.15rem; }
-.mode-desc { color: var(--muted); font-size: 0.9em; }
-.resume {
+.mode-desc { color: var(--muted); font-size: 0.9em; }.resume {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px; width: 100%;
   padding: 14px 18px; border-radius: 12px; border: 2px solid var(--accent); background: var(--surface); cursor: pointer; text-align: left;
 }

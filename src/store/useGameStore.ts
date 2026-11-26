@@ -9,6 +9,7 @@ import type { StoryDetail } from '../engine/story';
 
 export type Screen =
   | { name: 'home' }
+  | { name: 'localSim' }
   | { name: 'exTeams' }
   | { name: 'exSettings' }
   | { name: 'match' }
