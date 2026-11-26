@@ -1,6 +1,19 @@
+import type { KeyboardEvent } from 'react';
 import { getTeam, currentInnings } from '../engine/match';
 import { formatOvers } from '../engine/stats';
 import { useGame } from '../store/useGameStore';
+
+/** Up and Down move between menu items, like a console title screen. */
+function moveFocus(e: KeyboardEvent<HTMLElement>) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+  if (items.length === 0) return;
+  e.preventDefault();
+  const at = items.indexOf(document.activeElement as HTMLButtonElement);
+  const step = e.key === 'ArrowDown' ? 1 : -1;
+  const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : (at + step + items.length) % items.length;
+  items[next].focus();
+}
 
 export function Home() {
   const go = useGame((s) => s.go);
@@ -9,59 +22,40 @@ export function Home() {
   const active = tournaments.filter((t) => t.status === 'active').length;
   const activeSeries = useGame((s) => s.series.filter((x) => x.status === 'active').length);
   const resumable = live && !live.match.result ? live.match : null;
+  const inProgress = active + activeSeries;
 
   return (
     <div className="screen home">
-      <div className="hero">
-        <div className="hero-dice" aria-hidden>🎲</div>
-        <h1>Dice Cricket</h1>
-        <p className="muted">Eleven players a side, one die. 1–4 and 6 score runs, and a 5 means a wicket check.</p>
-      </div>
+      <div className="title-screen">
+        <header className="title-head">
+          <div className="title-dice" aria-hidden>🎲</div>
+          <h1 className="title-logo">Dice Cricket</h1>
+          <p className="title-tagline">Eleven players a side, one die. 1–4 and 6 score runs, and a 5 means a wicket check.</p>
+        </header>
 
-      {resumable && (
-        <button className="resume" onClick={() => go({ name: 'match' })}>
-          <span className="resume-tag">Resume match</span>
-          <span>
-            {resumable.teams[0].name} v {resumable.teams[1].name}
-          </span>
-          <span className="muted small">
-            {getTeam(resumable, currentInnings(resumable).battingTeamId).short} {currentInnings(resumable).runs}/
-            {currentInnings(resumable).wickets} ({formatOvers(currentInnings(resumable).legalBalls)} ov)
-          </span>
-        </button>
-      )}
-
-      <div className="mode-grid">
-        <button className="mode" onClick={() => go({ name: 'localSim' })}>
-          <span className="mode-icon">🎲</span>
-          <span className="mode-title">Local Sim</span>
-          <span className="mode-desc">
-            Exhibition match, tournament or bilateral series on this device.
-            {active + activeSeries > 0 && <b> {active + activeSeries} in progress.</b>}
-          </span>
-        </button>
-        {import.meta.env.VITE_ONLINE_URL && (
-          <button className="mode" onClick={() => window.location.assign('./online.html')}>
-            <span className="mode-icon">🌐</span>
-            <span className="mode-title">Online 1v1</span>
-            <span className="mode-desc">Play a friend on another computer.</span>
+        <nav className="title-menu" aria-label="Main menu" onKeyDown={moveFocus}>
+          {import.meta.env.VITE_ONLINE_URL && (
+            <button className="title-item" onClick={() => window.location.assign('./online.html')}>
+              Online 1v1
+            </button>
+          )}
+          {resumable && (
+            <button className="title-item" onClick={() => go({ name: 'match' })}>
+              Resume Match
+              <span className="title-extra">
+                {getTeam(resumable, currentInnings(resumable).battingTeamId).short} {currentInnings(resumable).runs}/
+                {currentInnings(resumable).wickets} ({formatOvers(currentInnings(resumable).legalBalls)})
+              </span>
+            </button>
+          )}
+          <button className="title-item" onClick={() => go({ name: 'localSim' })}>
+            Local Sim
+            {inProgress > 0 && <span className="title-extra">{inProgress} in progress</span>}
           </button>
-        )}
-        <button className="mode" onClick={() => go({ name: 'teams' })}>
-          <span className="mode-icon">👥</span>
-          <span className="mode-title">Teams</span>
-          <span className="mode-desc">Edit squads, batting orders and bowlers.</span>
-        </button>
-        <button className="mode" onClick={() => go({ name: 'stats' })}>
-          <span className="mode-icon">📊</span>
-          <span className="mode-title">Stats & History</span>
-          <span className="mode-desc">Batting and bowling leaderboards and past scorecards.</span>
-        </button>
-        <button className="mode" onClick={() => go({ name: 'backup' })}>
-          <span className="mode-icon">💾</span>
-          <span className="mode-title">Backup & Restore</span>
-          <span className="mode-desc">Export your teams, matches and stats to a file, or import a backup.</span>
-        </button>
+          <button className="title-item" onClick={() => go({ name: 'teams' })}>Teams</button>
+          <button className="title-item" onClick={() => go({ name: 'stats' })}>Stats &amp; History</button>
+          <button className="title-item" onClick={() => go({ name: 'backup' })}>Backup &amp; Restore</button>
+        </nav>
       </div>
     </div>
   );
