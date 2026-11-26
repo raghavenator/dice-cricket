@@ -2,6 +2,7 @@ import type { KeyboardEvent } from 'react';
 import { getTeam, currentInnings } from '../engine/match';
 import { formatOvers } from '../engine/stats';
 import { useGame } from '../store/useGameStore';
+import silhouette from '../assets/batter-silhouette.png';
 
 /** Up and Down move between menu items, like a console title screen. */
 function moveFocus(e: KeyboardEvent<HTMLElement>) {
@@ -27,6 +28,7 @@ export function Home() {
   return (
     <div className="screen home">
       <div className="title-screen">
+        <img className="title-silhouette" src={silhouette} alt="" aria-hidden draggable={false} />
         <header className="title-head">
           <div className="title-dice" aria-hidden>🎲</div>
           <h1 className="title-logo">Dice Cricket</h1>

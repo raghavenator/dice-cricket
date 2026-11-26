@@ -129,6 +129,13 @@ h3 { font-size: 1.05rem; }
     linear-gradient(160deg, #1f6f3d 0%, #0f3d20 55%, #08200f 100%);
 }
 .title-head { margin-bottom: 26px; }
+.title-head, .title-menu { position: relative; z-index: 1; }
+.title-silhouette {
+  position: absolute; left: 2%; bottom: 0; height: 75%; max-height: 640px; width: auto;
+  pointer-events: none; user-select: none; opacity: 0.85;
+  filter: drop-shadow(0 0 18px rgba(0, 0, 0, 0.35));
+}
+@media (max-width: 760px) { .title-silhouette { height: 45%; opacity: 0.4; } }
 .title-dice { font-size: 3rem; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45)); }
 .title-logo {
   font-family: 'Russo One', system-ui, sans-serif; font-weight: 400;
