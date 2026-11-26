@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NameForm, OnlineHome } from './OnlineHome';
+import { NameForm, OnlineHome, OpenRoomsPage, PrivateMatch } from './OnlineHome';
 import { OnlineMatchView } from './OnlineMatchView';
 import { OnlinePlayer } from './OnlinePlayer';
 import { OnlineRoom } from './OnlineRoom';
@@ -25,6 +25,8 @@ export function OnlineApp() {
   let body: React.ReactNode;
   switch (route.name) {
     case 'home': body = <OnlineHome onNamed={() => setNamed(true)} />; break;
+    case 'private': body = <PrivateMatch onNamed={() => setNamed(true)} />; break;
+    case 'open': body = <OpenRoomsPage onNamed={() => setNamed(true)} />; break;
     case 'stats': body = <OnlineStats />; break;
     case 'player': body = <OnlinePlayer key={route.id} playerId={route.id} />; break;
     case 'match': body = <OnlineMatchView key={route.id} matchId={route.id} />; break;

@@ -9,6 +9,8 @@ function go(hash: string) {
 }
 
 export const goHome = () => go('');
+export const goPrivate = () => go('#/private');
+export const goOpen = () => go('#/open');
 export const goRoom = (code: string) => go(`#/join/${code}`);
 export const goStats = () => go('#/stats');
 export const goPlayer = (playerId: string) => go(`#/stats/player/${encodeURIComponent(playerId)}`);
@@ -25,6 +27,8 @@ export const inviteLink = (code: string) => `${window.location.origin}${window.l
 
 export type Route =
   | { name: 'home' }
+  | { name: 'private' }
+  | { name: 'open' }
   | { name: 'join'; code: string }
   | { name: 'stats' }
   | { name: 'player'; id: string }
@@ -39,6 +43,8 @@ export function parseRoute(hash: string): Route {
       return s;
     }
   };
+  if (page === 'private') return { name: 'private' };
+  if (page === 'open') return { name: 'open' };
   if (page === 'join' && a) return { name: 'join', code: decode(a) };
   if (page === 'stats' && a === 'player' && b) return { name: 'player', id: decode(b) };
   if (page === 'stats' && a === 'match' && b) return { name: 'match', id: decode(b) };

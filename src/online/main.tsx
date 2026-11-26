@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OnlineApp } from './OnlineApp';
+import '@fontsource/russo-one';
 import '../styles.css';
 import './online.css';
 
