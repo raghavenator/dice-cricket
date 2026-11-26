@@ -1,72 +1,49 @@
+/* The app is always dark, on the green "title screen" backdrop. */
 :root {
-  --bg: #eef2ea;
-  --surface: #ffffff;
-  --surface-2: #f5f7f2;
-  --text: #1b241c;
-  --muted: #5e6b60;
-  --border: #d5ddd2;
-  --pitch: #1f5d34;
-  --pitch-2: #2c7a46;
-  --accent: #1f6f3d;
-  --accent-text: #ffffff;
-  --live: #fff7d6;
-  --qualify: #e7f4ea;
-  --chip-run: #e9ecef;
-  --chip-run-text: #1b241c;
+  --bg: #0f1511;
+  --backdrop:
+    linear-gradient(115deg, transparent 0 38%, rgba(255, 255, 255, 0.07) 38% 46%, transparent 46% 100%),
+    linear-gradient(115deg, transparent 0 52%, rgba(255, 255, 255, 0.05) 52% 56%, transparent 56% 100%),
+    radial-gradient(ellipse at 50% 0%, #3d9a5a 0%, transparent 60%),
+    linear-gradient(160deg, #1f6f3d 0%, #0f3d20 55%, #08200f 100%);
+  --surface: #18211b;
+  --surface-2: #1e2922;
+  --text: #e6ede7;
+  --muted: #a9b8ad;
+  --border: #2c3a30;
+  --pitch: #143d23;
+  --pitch-2: #1d5532;
+  --accent: #3fa863;
+  --accent-text: #08140c;
+  --live: #3a3415;
+  --qualify: #18331f;
+  --chip-run: #2c3a30;
+  --chip-run-text: #e6ede7;
   --chip-four: #1f6feb;
   --chip-six: #8250df;
-  --chip-dot: #f1f3f5;
-  --chip-dot-text: #7a857c;
+  --chip-dot: #222d25;
+  --chip-dot-text: #93a197;
   --chip-w: #d1242f;
-  --win: #1a7f37;
-  --die: #fdfdf8;
-  --die-edge: #d9d6c8;
+  --win: #2ea043;
+  --die: #f1efe6;
+  --die-edge: #b9b5a4;
   --pip: #1b241c;
-  --check: #fff1f0;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.06);
+  --check: #3a1d1d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   /* Chart series: validated categorical slots 1 (blue) & 2 (orange) */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --viz-grid: #e4e8e1;
-  --viz-axis: #b8c2b9;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --bg: #0f1511;
-    --surface: #18211b;
-    --surface-2: #1e2922;
-    --text: #e6ede7;
-    --muted: #93a197;
-    --border: #2c3a30;
-    --pitch: #143d23;
-    --pitch-2: #1d5532;
-    --accent: #3fa863;
-    --accent-text: #08140c;
-    --live: #3a3415;
-    --qualify: #18331f;
-    --chip-run: #2c3a30;
-    --chip-run-text: #e6ede7;
-    --chip-dot: #222d25;
-    --chip-dot-text: #93a197;
-    --die: #f1efe6;
-    --die-edge: #b9b5a4;
-    --check: #3a1d1d;
-    --win: #2ea043;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --series-1: #3987e5;
-    --series-2: #d95926;
-    --viz-grid: #26322a;
-    --viz-axis: #46564b;
-    color-scheme: dark;
-  }
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --viz-grid: #26322a;
+  --viz-axis: #46564b;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
-  background: var(--bg);
+  min-height: 100vh;
+  background: var(--backdrop), var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
@@ -118,15 +95,10 @@ h3 { font-size: 1.05rem; }
 .app-home > main { flex: 1; display: flex; }
 .screen.home { flex: 1; display: flex; max-width: none; margin: 0; padding: 0; }
 .title-screen {
-  /* Always a dark green "title screen", in both themes, so the white menu text reads well. */
+  /* Sits on the page's green backdrop (see --backdrop on body). */
   flex: 1; display: flex; flex-direction: column; justify-content: center;
   position: relative; overflow: hidden; text-align: center;
   padding: 36px 16px 40px; color: #f2f7f1;
-  background:
-    linear-gradient(115deg, transparent 0 38%, rgba(255, 255, 255, 0.07) 38% 46%, transparent 46% 100%),
-    linear-gradient(115deg, transparent 0 52%, rgba(255, 255, 255, 0.05) 52% 56%, transparent 56% 100%),
-    radial-gradient(ellipse at 50% 0%, #3d9a5a 0%, transparent 60%),
-    linear-gradient(160deg, #1f6f3d 0%, #0f3d20 55%, #08200f 100%);
 }
 .title-head { margin-bottom: 26px; }
 .title-head, .title-menu { position: relative; z-index: 1; }
