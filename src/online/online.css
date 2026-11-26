@@ -30,10 +30,6 @@
 
 .on-lineup { max-width: 600px; margin-top: 16px; }
 .on-player { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.on-plan { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
-.on-plan li { display: flex; align-items: center; gap: 8px; }
-.on-plan .pos { width: 24px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-.on-plan select { flex: 1; min-width: 0; }
 
 .on-ready-bar {
   position: sticky; bottom: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px;
@@ -115,3 +111,81 @@ a.title-item { box-sizing: border-box; }
 /* The lineup on the quick-match team page. */
 .on-quick-lineup { width: min(600px, 100%); margin: 0 0 14px; text-align: left; }
 .on-quick-lineup .on-lineup { margin-top: 0; }
+
+/* The lineup as a team sheet. --team is set on the sheet from the team's colour. */
+.on-sheet {
+  position: relative; text-align: left; padding: 16px 16px 12px; border-radius: 14px;
+  background: linear-gradient(180deg, rgba(10, 20, 13, 0.92), rgba(14, 26, 18, 0.88)); border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.on-sheet-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.on-sheet-title {
+  margin: 0; flex: 1; font-family: 'Russo One', system-ui, sans-serif; font-weight: 400; font-size: 1.2rem;
+  text-transform: uppercase; letter-spacing: 0.05em; color: #fff;
+}
+.on-count {
+  font-family: 'Russo One', system-ui, sans-serif; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 4px 10px; border-radius: 999px; border: 1px solid;
+}
+.on-count-ok { color: #7ee2a0; border-color: rgba(126, 226, 160, 0.5); background: rgba(46, 160, 67, 0.15); }
+.on-count-short { color: #f2c35b; border-color: rgba(242, 195, 91, 0.55); background: rgba(212, 167, 44, 0.15); }
+.on-sheet-reset {
+  font: inherit; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); cursor: pointer;
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 6px; padding: 4px 10px;
+}
+.on-sheet-reset:hover:not(:disabled) { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
+.on-sheet-hint { margin: 6px 0 4px; font-size: 0.8rem; color: var(--muted); }
+.on-sheet-list { list-style: none; margin: 0; padding: 0; }
+.on-sheet-group {
+  margin: 12px 0 4px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em;
+  color: rgba(242, 247, 241, 0.5);
+}
+.on-sheet-row {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 6px 4px 0; margin-bottom: 3px;
+  border-radius: 8px; background: rgba(255, 255, 255, 0.035); border-left: 4px solid var(--team, var(--accent));
+  transition: transform 0.15s ease, background 0.12s, box-shadow 0.12s;
+}
+.on-sheet-item:nth-child(even) .on-sheet-row { background: rgba(255, 255, 255, 0.06); }
+.on-sheet-row:hover, .on-sheet-row:focus-within { background: rgba(255, 255, 255, 0.1); }
+.on-sheet-lifted {
+  position: relative; z-index: 2; transition: none; background: #24352a !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+.on-sheet-dragging { user-select: none; }
+.on-sheet-pos {
+  width: 34px; flex: none; text-align: center; font-family: 'Russo One', system-ui, sans-serif; font-size: 1.15rem;
+  color: rgba(255, 255, 255, 0.85); font-variant-numeric: tabular-nums;
+}
+.on-sheet-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.on-bowl-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: rgba(242, 247, 241, 0.55); background: transparent; border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.on-bowl-pill:hover:not(:disabled) { color: #fff; border-color: rgba(255, 255, 255, 0.5); }
+.on-bowl-pill.on { color: #fff; background: #2ea043; border-color: #2ea043; }
+.on-ball {
+  width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.on-bowl-pill.on .on-ball { background: #c8102e; box-shadow: inset 0 0 0 1.5px #fff; }
+.on-sheet-moves { display: inline-flex; flex: none; gap: 2px; }
+.on-move, .on-drag {
+  width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0; cursor: pointer; border-radius: 6px;
+  background: transparent; border: 0; color: rgba(242, 247, 241, 0.7); font-size: 0.7rem;
+}
+.on-move:hover:not(:disabled), .on-drag:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.on-move:disabled { opacity: 0.25; cursor: default; }
+.on-drag { font-size: 1.1rem; cursor: grab; touch-action: none; }
+.on-sheet-dragging .on-drag { cursor: grabbing; }
+.on-sheet button:disabled { cursor: default; }
+@media (max-width: 480px) {
+  .on-sheet { padding: 12px 10px 8px; }
+  .on-sheet-title { font-size: 1rem; white-space: nowrap; }
+  .on-sheet-row { gap: 6px; }
+  .on-sheet-pos { width: 26px; font-size: 1rem; }
+  .on-bowl-pill { padding: 5px 8px; }
+  .on-move { width: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .on-sheet-row { transition: none; } }
