@@ -4,6 +4,7 @@ import { OnlineMatchView } from './OnlineMatchView';
 import { OnlinePlayer } from './OnlinePlayer';
 import { OnlineRoom } from './OnlineRoom';
 import { OnlineStats } from './OnlineStats';
+import { QuickPick } from './QuickPick';
 import { getGuest, nicknameProblem } from './guest';
 import { goHome, parseRoute } from './nav';
 import { normalizeCode } from './protocol';
@@ -25,6 +26,7 @@ export function OnlineApp() {
   let body: React.ReactNode;
   switch (route.name) {
     case 'home': body = <OnlineHome onNamed={() => setNamed(true)} />; break;
+    case 'quick': body = <QuickPick onNamed={() => setNamed(true)} />; break;
     case 'private': body = <PrivateMatch onNamed={() => setNamed(true)} />; break;
     case 'open': body = <OpenRoomsPage onNamed={() => setNamed(true)} />; break;
     case 'stats': body = <OnlineStats />; break;

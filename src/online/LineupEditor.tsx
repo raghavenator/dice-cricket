@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Team } from '../engine/types';
-import { autoPlan, bowlerCap, defaultLineup, lineupProblem, minBowlers, type Lineup } from './lineup';
+import { defaultLineup, lineupProblem, minBowlers, type Lineup } from './lineup';
 
 interface Draft {
   order: string[];
@@ -9,7 +9,8 @@ interface Draft {
   plan: string[] | null;
 }
 
-const toDraft = (l: Lineup): Draft => ({ order: l.battingOrder, bowlers: l.bowlers, plan: l.bowlingPlan ?? null });
+/** Online play has no bowling plan: bowlers are chosen over by over during the match. */
+const toDraft = (l: Lineup): Draft => ({ order: l.battingOrder, bowlers: l.bowlers, plan: null });
 const toLineup = (d: Draft): Lineup => ({
   battingOrder: d.order,
   bowlers: d.bowlers,
@@ -59,7 +60,6 @@ export function LineupEditor({
   };
 
   const player = (id: string) => team.players.find((p) => p.id === id);
-  const cap = bowlerCap(overs);
   const need = minBowlers(overs);
 
   const move = (i: number, by: number) =>
@@ -106,59 +106,6 @@ export function LineupEditor({
         </ol>
       </div>
 
-      <div className="card on-pad">
-        <div className="title-row">
-          <h3>Bowling order <span className="muted small">(optional)</span></h3>
-          <div className="btn-row">
-            <button
-              className="btn btn-sm"
-              disabled={locked || draft.bowlers.length < need}
-              onClick={() => edit((d) => { d.plan = autoPlan(d.bowlers, overs); })}
-            >
-              Fill automatically
-            </button>
-            {draft.plan && (
-              <button className="btn btn-sm btn-ghost" disabled={locked} onClick={() => edit((d) => { d.plan = null; })}>
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="hint">
-          Each bowler can bowl {cap} over{cap === 1 ? '' : 's'}, never two in a row. You can still change your mind before
-          each over. Your opponent never sees this.
-        </p>
-        {draft.plan ? (
-          <ol className="on-plan">
-            {draft.plan.map((id, over) => (
-              <li key={over}>
-                <span className="pos">{over + 1}</span>
-                <select
-                  value={id}
-                  disabled={locked}
-                  aria-label={`Bowler for over ${over + 1}`}
-                  onChange={(e) => edit((d) => { d.plan![over] = e.target.value; })}
-                >
-                  <option value="">Choose…</option>
-                  {draft.bowlers.map((b) => {
-                    const elsewhere = draft.plan!.filter((x, i) => x === b && i !== over).length;
-                    const inRow = draft.plan![over - 1] === b || draft.plan![over + 1] === b;
-                    return (
-                      <option key={b} value={b} disabled={b !== id && (elsewhere >= cap || inRow)}>
-                        {player(b)?.name}
-                      </option>
-                    );
-                  })}
-                </select>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <button className="btn" disabled={locked} onClick={() => edit((d) => { d.plan = Array<string>(overs).fill(''); })}>
-            Choose who bowls each over
-          </button>
-        )}
-      </div>
     </div>
   );
 }

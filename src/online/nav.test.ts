@@ -4,6 +4,7 @@ import { parseRoute } from './nav';
 describe('parseRoute', () => {
   it('reads the online menu pages', () => {
     expect(parseRoute('')).toEqual({ name: 'home' });
+    expect(parseRoute('#/quick')).toEqual({ name: 'quick' });
     expect(parseRoute('#/private')).toEqual({ name: 'private' });
     expect(parseRoute('#/open')).toEqual({ name: 'open' });
     expect(parseRoute('#/stats')).toEqual({ name: 'stats' });

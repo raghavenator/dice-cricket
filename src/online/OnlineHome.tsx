@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { collectResults } from './collect';
 import { getGuest, nicknameProblem, setNickname } from './guest';
-import { goHome, goOpen, goPrivate, goRoom, goStats } from './nav';
+import { goHome, goOpen, goPrivate, goQuick, goRoom, goStats } from './nav';
 import { CODE_LENGTH, normalizeCode } from './protocol';
 import { OpenRooms } from './OpenRooms';
-import { QuickMatchButton } from './QuickMatchButton';
 import { createRoom, serverUrl } from './useOnlineStore';
 import { MAX_NICKNAME } from './validate';
 
@@ -42,7 +41,7 @@ export function NameForm({ action, onDone }: { action: string; onDone: () => voi
 }
 
 /** The name box at the top of a menu. */
-function NameInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export function NameInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <input
       className="on-name-input"
@@ -59,6 +58,8 @@ function NameInput({ value, onChange }: { value: string; onChange: (v: string) =
 /** Up and Down move between menu items, like the main home screen. */
 function moveFocus(e: KeyboardEvent<HTMLElement>) {
   if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  // Dropdowns use the arrow keys themselves.
+  if ((e.target as HTMLElement).tagName === 'SELECT') return;
   const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input, a[href]'));
   if (items.length === 0) return;
   e.preventDefault();
@@ -69,7 +70,7 @@ function moveFocus(e: KeyboardEvent<HTMLElement>) {
 }
 
 /** A title-screen page: a heading, an optional line under it, and a centred column of options. */
-function MenuPage({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
+export function MenuPage({ title, note, children }: { title: string; note?: ReactNode; children: ReactNode }) {
   return (
     <div className="screen on-title">
       <header className="title-head">
@@ -84,7 +85,7 @@ function MenuPage({ title, note, children }: { title: string; note?: ReactNode; 
 }
 
 /** The player's name, and the actions that need one. Shared by every online menu page. */
-function useOnlineName(onNamed: () => void) {
+export function useOnlineName(onNamed: () => void) {
   const [name, setName] = useState(getGuest().nickname);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,7 +166,16 @@ export function OnlineHome({ onNamed }: { onNamed: () => void }) {
         </button>
       ))}
       <NameInput value={name} onChange={setName} />
-      <QuickMatchButton className="title-item" label="Quick Match" disabled={nameBad} before={named} />
+      <button
+        className="title-item"
+        disabled={nameBad}
+        onClick={() => {
+          named();
+          goQuick();
+        }}
+      >
+        Quick Match
+      </button>
       <button
         className="title-item"
         disabled={nameBad}

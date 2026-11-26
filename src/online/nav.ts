@@ -9,6 +9,7 @@ function go(hash: string) {
 }
 
 export const goHome = () => go('');
+export const goQuick = () => go('#/quick');
 export const goPrivate = () => go('#/private');
 export const goOpen = () => go('#/open');
 export const goRoom = (code: string) => go(`#/join/${code}`);
@@ -27,6 +28,7 @@ export const inviteLink = (code: string) => `${window.location.origin}${window.l
 
 export type Route =
   | { name: 'home' }
+  | { name: 'quick' }
   | { name: 'private' }
   | { name: 'open' }
   | { name: 'join'; code: string }
@@ -43,6 +45,7 @@ export function parseRoute(hash: string): Route {
       return s;
     }
   };
+  if (page === 'quick') return { name: 'quick' };
   if (page === 'private') return { name: 'private' };
   if (page === 'open') return { name: 'open' };
   if (page === 'join' && a) return { name: 'join', code: decode(a) };

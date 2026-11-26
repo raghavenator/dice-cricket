@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TeamCard } from '../components/SettingsForm';
 import { PRESET_TEAMS } from '../data/presets';
 import { AutoToggles } from './AutoToggles';
 import { LineupEditor } from './LineupEditor';
 import { OnlineMatch } from './OnlineMatch';
-import { QuickMatchButton } from './QuickMatchButton';
 import { getGuest } from './guest';
 import { lineupProblem, type Lineup } from './lineup';
-import { goHome, goRoom, inviteLink } from './nav';
+import { goHome, goQuick, goRoom, inviteLink } from './nav';
 import { recallLineup, rememberLineup } from './onlineDb';
-import type { RoomView, SeatView } from './protocol';
+import type { ClientMessage, RoomView, SeatView } from './protocol';
+import { preferredQuickTeam } from './quickTeam';
+import { TeamCrest } from './TeamCrest';
 import { loadTeams, type TeamChoice } from './teams';
 import { Countdown } from './time';
 import { quickMatch, useOnline } from './useOnlineStore';
@@ -46,7 +47,7 @@ export function OnlineRoom({ code }: { code: string }) {
           <p className="muted">Check the code with your friend. Rooms close after 30 minutes if nobody joins.</p>
         )}
         <div className="btn-row">
-          {view?.access === 'quick' && <QuickMatchButton label="Find another match" before={() => getGuest().nickname} />}
+          {view?.access === 'quick' && <button className="btn btn-primary" onClick={goQuick}>Find another match</button>}
           <button className="btn" onClick={goHome}>Online home</button>
         </div>
       </div>
@@ -60,6 +61,7 @@ export function OnlineRoom({ code }: { code: string }) {
     );
   else if (showMatch) body = <OnlineMatch />;
   else if (view.phase === 'toss') body = <Toss view={view} />;
+  else if (view.access === 'quick') body = <QuickSearching view={view} />;
   else body = <Setup view={view} />;
 
   return (
@@ -90,6 +92,102 @@ export function Presence({ seat }: { seat: SeatView }) {
 }
 
 // ---------- Before the match ----------
+
+/** Sets the team, then last time's batting order and bowlers for it if they still fit these overs. */
+async function chooseTeam(send: (m: ClientMessage) => void, team: TeamChoice['team'], overs: number) {
+  const saved = await recallLineup(team.id);
+  send({ t: 'setTeam', team });
+  if (!saved) return;
+  // Bowlers are chosen during the match, so a bowling plan saved before is left out.
+  const { bowlingPlan: _, ...noPlan } = saved;
+  if (lineupProblem(team, noPlan, overs) === null) send({ t: 'setLineup', lineup: noPlan });
+}
+
+/** Two people can each end up waiting in a quick-match room of their own. Asking again brings the later one to the earlier one. */
+function useLookAgain(view: RoomView) {
+  const looking = view.access === 'quick' && view.phase === 'waiting';
+  useEffect(() => {
+    if (!looking) return;
+    const look = async () => {
+      const code = await quickMatch(getGuest().nickname, view.code).catch(() => view.code);
+      const now = useOnline.getState().view;
+      if (code === view.code || now?.code !== view.code || now.phase !== 'waiting') return;
+      await useOnline.getState().leave();
+      goRoom(code);
+    };
+    const t = window.setInterval(() => void look(), LOOK_AGAIN_MS);
+    return () => clearInterval(t);
+  }, [looking, view.code]);
+}
+
+function elapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * A quick-match room before the toss. The team chosen on the previous page is set, and Ready is sent
+ * as soon as someone joins, so all the player sees is the search. The opponent is not shown here.
+ */
+function QuickSearching({ view }: { view: RoomView }) {
+  const send = useOnline((s) => s.send);
+  const me = view.you === 'host' ? view.host : view.guest!;
+  const found = view.phase === 'setup';
+  const [wanted] = useState(() => preferredQuickTeam());
+  const [choosing, setChoosing] = useState(false);
+  const [since] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const chose = useRef(false);
+  const pending = useRef(false);
+  const team = view.team ?? wanted;
+
+  useLookAgain(view);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Set the chosen team once. Messages go in order, so Ready (below) always arrives after the lineup.
+  useEffect(() => {
+    if (view.team || chose.current) return;
+    chose.current = true;
+    setChoosing(true);
+    void chooseTeam(send, wanted, view.overs).finally(() => setChoosing(false));
+  }, [view.team, view.overs, send, wanted]);
+
+  // Ready as soon as there is an opponent. Sent again only if the server later clears it.
+  useEffect(() => {
+    if (me.ready || !found) {
+      pending.current = false;
+      return;
+    }
+    if (choosing || !view.team || !view.lineup || pending.current) return;
+    pending.current = true;
+    send({ t: 'ready' });
+  }, [found, choosing, me.ready, view.team, view.lineup, send]);
+
+  const cancel = () => void useOnline.getState().leave().then(goQuick);
+
+  return (
+    <div className="screen on-title">
+      <header className="title-head">
+        <h1 className="title-logo on-title-logo">{found ? 'Opponent Found' : 'Finding Opponent'}</h1>
+        <p className="title-tagline">5 overs · sample teams</p>
+      </header>
+      <div className={`on-crest-big ${found ? '' : 'on-searching'}`}>
+        <TeamCrest team={team} size={150} />
+      </div>
+      <div className="on-team-name">{team.name}</div>
+      <p className="on-hint" role="status">
+        {found ? 'Starting…' : <>Searching… {elapsed(now - since)}</>}
+      </p>
+      <nav className="title-menu" aria-label="Quick match">
+        {!found && <button className="title-item" onClick={cancel}>Cancel</button>}
+      </nav>
+    </div>
+  );
+}
 
 function Invite({ code }: { code: string }) {
   const [copied, setCopied] = useState<string | null>(null);
@@ -162,30 +260,11 @@ function Setup({ view }: { view: RoomView }) {
     };
   }, [strangers]);
 
-  // Two people can each end up waiting in a room of their own. Asking again brings the later one to the earlier one.
-  const looking = quick && view.phase === 'waiting';
-  useEffect(() => {
-    if (!looking) return;
-    const look = async () => {
-      const code = await quickMatch(getGuest().nickname, view.code).catch(() => view.code);
-      const now = useOnline.getState().view;
-      if (code === view.code || now?.code !== view.code || now.phase !== 'waiting') return;
-      await useOnline.getState().leave();
-      goRoom(code);
-    };
-    const t = window.setInterval(() => void look(), LOOK_AGAIN_MS);
-    return () => clearInterval(t);
-  }, [looking, view.code]);
+  useLookAgain(view);
 
   const pickTeam = async ({ team }: TeamChoice) => {
     if (me.ready || team.id === view.team?.id) return;
-    const saved = await recallLineup(team.id);
-    send({ t: 'setTeam', team });
-    if (!saved) return;
-    // Use as much of last time's lineup as still fits this team and these overs.
-    const { bowlingPlan: _, ...noPlan } = saved;
-    const fits = [saved, noPlan].find((l) => lineupProblem(team, l, view.overs) === null);
-    if (fits) send({ t: 'setLineup', lineup: fits });
+    await chooseTeam(send, team, view.overs);
   };
 
   const changeLineup = useCallback(
