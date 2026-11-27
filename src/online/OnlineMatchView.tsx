@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { MatchCharts } from '../components/Charts';
 import { BattingCard, BowlingCard, InningsTabs } from '../components/Scorecard';
+import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { goBack } from './nav';
+import { useScorecardOrder } from './scorecardOrder';
 import { asMine, sideOf } from './statMatches';
 import { useRecords } from './useRecords';
 
@@ -9,6 +11,7 @@ import { useRecords } from './useRecords';
 export function OnlineMatchView({ matchId }: { matchId: string }) {
   const data = useRecords();
   const [idx, setIdx] = useState(0);
+  const [order, setOrder] = useScorecardOrder();
   const rec = data?.records.find((r) => r.id === matchId);
   // Your side under one id, matching the hover cards. A match against yourself keeps both ids, or they would clash.
   const m = useMemo(
@@ -31,9 +34,11 @@ export function OnlineMatchView({ matchId }: { matchId: string }) {
           </p>
           <div className="result-banner"><div className="result-title">🏆 {m.result?.text}</div></div>
           <InningsTabs m={m} value={idx} onChange={setIdx} />
-          <MatchCharts m={m} idx={idx} />
+          <ScorecardOrderToggle value={order} onChange={setOrder} />
+          {order === 'charts-first' && <MatchCharts m={m} idx={idx} />}
           <BattingCard m={m} idx={idx} />
           <BowlingCard m={m} idx={idx} />
+          {order === 'tables-first' && <MatchCharts m={m} idx={idx} />}
         </>
       )}
     </div>

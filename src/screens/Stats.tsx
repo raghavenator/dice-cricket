@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BattingCard, BowlingCard, InningsTabs, scoreText, inningsTitle } from '../components/Scorecard';
 import { MatchCharts } from '../components/Charts';
+import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { BattingCardHover, BowlingCardHover, HoverCard } from '../components/PlayerHover';
 import { db, type MatchRecord } from '../data/db';
 import { aggregate, battingAverage, formatOvers, ratio, strikeRate, type CareerBat, type CareerBowl } from '../engine/stats';
@@ -349,6 +350,8 @@ export function StatsScreen({ tournamentId, seriesId, view }: { tournamentId?: s
 
 export function MatchView({ matchId, back }: { matchId: string; back: Screen }) {
   const go = useGame((s) => s.go);
+  const order = useGame((s) => s.prefs.scorecardOrder) ?? 'charts-first';
+  const setPrefs = useGame((s) => s.setPrefs);
   const [rec, setRec] = useState<MatchRecord | null | undefined>(undefined);
   const [idx, setIdx] = useState(0);
   useEffect(() => {
@@ -372,9 +375,11 @@ export function MatchView({ matchId, back }: { matchId: string; back: Screen }) 
           </p>
           <div className="result-banner"><div className="result-title">🏆 {rec.match.result?.text}</div></div>
           <InningsTabs m={rec.match} value={idx} onChange={setIdx} />
-          <MatchCharts m={rec.match} idx={idx} />
+          <ScorecardOrderToggle value={order} onChange={(v) => setPrefs({ scorecardOrder: v })} />
+          {order === 'charts-first' && <MatchCharts m={rec.match} idx={idx} />}
           <BattingCard m={rec.match} idx={idx} />
           <BowlingCard m={rec.match} idx={idx} />
+          {order === 'tables-first' && <MatchCharts m={rec.match} idx={idx} />}
         </>
       )}
     </div>
