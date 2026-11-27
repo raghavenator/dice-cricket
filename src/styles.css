@@ -735,9 +735,11 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 }
 @media (min-width: 900px) {
   .play-top { right: 384px; max-width: 820px; }
-  .play-dock { left: auto; top: 8px; bottom: 8px; width: 340px; max-height: none; }
-  .play-dock .commentary { height: auto; flex: 1; min-height: 120px; }
-  .play-dice { justify-content: center; gap: 24px; }
+  .play-dock { left: auto; top: 8px; bottom: 8px; width: 340px; max-height: none; padding: 14px; gap: 10px; }
+  /* Commentary grows with its lines (no big empty box), scrolling once the panel is full. */
+  .play-dock .commentary { height: auto; flex: 0 1 auto; min-height: calc(2.9em + 26px); }
+  .play-dice { justify-content: center; align-items: flex-end; gap: 28px; padding: 10px 0 2px; }
+  .play-dice .die-slot { gap: 12px; }
   .pager-dots { right: auto; left: 10px; }
   .pager-hint { right: auto; left: 30px; }
 }

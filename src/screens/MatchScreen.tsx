@@ -312,11 +312,11 @@ export function MatchScreen() {
   const dice = (
     <div className="play-dice" title="1·2·3·4·6 = runs | 5 = wicket check (4+ out, 3 or less dot)">
       <div className="die-slot">
-        <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={wide ? 84 : 46} />
+        <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={wide ? 64 : 46} />
         {wide && <span className="small muted">Delivery</span>}
       </div>
       <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
-        <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={wide ? 60 : 36} tone="check" dim={!showCheck} />
+        <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={wide ? 46 : 36} tone="check" dim={!showCheck} />
         {wide && <span className="small muted">Wicket check</span>}
       </div>
     </div>
@@ -393,8 +393,9 @@ export function MatchScreen() {
         ) : (
           <>
             {pickNeeded && !busy && <BowlerPicker m={m} onPick={(id) => updateLive(setBowler(m, id))} />}
+            {wide && dice}
             <div className="play-row">
-              {dice}
+              {!wide && dice}
               {rollButton}
               <button className={`btn ${auto ? 'btn-on' : ''}`} onClick={toggleAuto} title="A" aria-pressed={auto}>
                 {auto ? '⏸' : '▶'}{wide ? (auto ? ' Stop auto' : ' Auto-roll') : ''}
