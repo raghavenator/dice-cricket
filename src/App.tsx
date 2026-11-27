@@ -47,7 +47,7 @@ export function App() {
   }
 
   return (
-    <div className={ready && !error && screen.name === 'home' ? 'app app-home' : 'app'}>
+    <div className={ready && !error && screen.name === 'home' ? 'app app-home' : ready && !error && screen.name === 'match' ? 'app app-match' : 'app'}>
       <header className="topbar">
         <button className="brand" onClick={() => go({ name: 'home' })}>
           <span aria-hidden>🎲</span> Dice Cricket

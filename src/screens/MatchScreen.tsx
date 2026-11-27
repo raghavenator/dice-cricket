@@ -11,6 +11,7 @@ import { MatchCharts } from '../components/Charts';
 import { Commentary } from '../components/Commentary';
 import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { MatchStage, usePrefersReducedMotion } from '../components/MatchStage';
+import { GameplayPager, useMedia, type PagerSection } from '../components/GameplayPager';
 import { useDeliveryTimeline } from '../components/useDeliveryTimeline';
 import { deliveryFor, waitingFor } from '../match3d/fromMatch';
 import type { Kits } from '../match3d/kits';
@@ -65,6 +66,7 @@ export function MatchScreen() {
   const [viewIdx, setViewIdx] = useState<number | null>(null);
   // One clock per ball for the dice, the 3D clip and the result.
   const reduced = usePrefersReducedMotion();
+  const wide = useMedia('(min-width: 900px)');
   const tl = useDeliveryTimeline();
   const [diceMs, setDiceMs] = useState({ d1: 0, d2: 0 });
   const [stageKits, setStageKits] = useState<Kits | null>(null);
@@ -258,9 +260,11 @@ export function MatchScreen() {
   const bowlRow = inn.bowlerId ? bowlingCard(m, curIdx).find((r) => r.playerId === inn.bowlerId) : undefined;
   const waiting = waitingFor(m);
 
-  return (
-    <div className="screen match">
-      {/* Scoreboard (the big FOUR!/SIX!/OUT! label now shows on the 3D stage) */}
+  const leave = () => go(live.tournamentId ? { name: 'tourHub', id: live.tournamentId } : { name: 'home' });
+  const rollLabel = busy ? 'Rolling…' : pickNeeded ? 'Choose a bowler' : '🎲 Roll';
+
+  // Scoreboard (the big FOUR!/SIX!/OUT! label shows on the 3D stage)
+  const scoreboard = (
       <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
         {flash && <span key={flash.id} className={`sb-glow sb-glow-${flash.kind}`} aria-hidden />}
         <div className="sb-main">
@@ -303,128 +307,132 @@ export function MatchScreen() {
           )}
         </div>
       </section>
+  );
 
-      {m.result && (
-        <section className="result-banner">
-          <div>
-            <div className="result-title">🏆 {m.result.text}</div>
-            <div className="muted small">
-              {live.saved ? 'Saved to stats.' : 'Saving…'} Use the tabs below to browse the full scorecard.
-            </div>
-          </div>
-          <button className="btn btn-primary" onClick={closeLive}>
-            {live.tournamentId ? 'Back to tournament' : live.seriesId ? 'Back to series' : 'Finish'}
-          </button>
-        </section>
-      )}
+  const dice = (
+    <div className="play-dice" title="1·2·3·4·6 = runs | 5 = wicket check (4+ out, 3 or less dot)">
+      <div className="die-slot">
+        <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={wide ? 84 : 46} />
+        {wide && <span className="small muted">Delivery</span>}
+      </div>
+      <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
+        <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={wide ? 60 : 36} tone="check" dim={!showCheck} />
+        {wide && <span className="small muted">Wicket check</span>}
+      </div>
+    </div>
+  );
 
+  const rollButton = (
+    <button className="btn btn-primary btn-roll" onClick={roll} disabled={busy || pickNeeded} title="Space">{rollLabel}</button>
+  );
+
+  // Settings and less-used controls, folded away on phones.
+  const more = (
+    <>
+      <div className="auto-row">
+        <label className="small">
+          Auto until end of{' '}
+          <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
+            <option value="over">this over</option>
+            <option value="innings">this innings</option>
+            <option value="match">the match</option>
+          </select>
+        </label>
+      </div>
+      <div className="auto-row small">
+        <label>
+          Every {(prefs.autoDelay / 1000).toFixed(1)}s
+          <input
+            type="range" min={300} max={5000} step={100} value={prefs.autoDelay}
+            onChange={(e) => setPrefs({ autoDelay: Number(e.target.value) })}
+          />
+        </label>
+        <label>
+          Dice{' '}
+          <select value={prefs.rollSpeed} onChange={(e) => setPrefs({ rollSpeed: e.target.value as RollSpeed })}>
+            <option value="normal">Normal</option>
+            <option value="fast">Fast</option>
+            <option value="instant">Instant</option>
+          </select>
+        </label>
+      </div>
+      <div className="sim-row">
+        <span className="small muted">Simulate:</span>
+        <button className="btn btn-sm" disabled={busy} onClick={() => sim('over')}>Over</button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => sim('innings')}>Innings</button>
+        <button className="btn btn-sm" disabled={busy} onClick={() => sim('match')}>Match</button>
+      </div>
+      <div className="small muted">1·2·3·4·6 = runs · 5 = wicket check (4+ out, 3 or less dot) · Space = roll · A = auto · tap the field to skip</div>
+    </>
+  );
+
+  const stageSection = (
+    <div className="play">
       <MatchStage
-        className="match-stage"
+        className="play-stage"
         delivery={tl.delivery}
         kits={(tl.delivery && stageKits) || waiting.kits}
         idleNumbers={waiting.numbers}
         onSkip={skipBall}
       />
-
-      <div className="match-grid">
-        {/* Dice panel */}
-        <section className="dice-panel card">
-          <div className="dice-row">
-            <div className="die-slot">
-              <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={104} />
-              <span className="small muted">Delivery</span>
-            </div>
-            <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
-              <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={72} tone="check" dim={!showCheck} />
-              <span className="small muted">Wicket check</span>
-            </div>
-          </div>
-          <div className="dice-legend small muted">
-            1·2·3·4·6 = runs &nbsp;|&nbsp; 5 = wicket check (4+ out, 3 or less dot)
-          </div>
-
-          {!m.result && (
-            <>
-              <button
-                className="btn btn-primary btn-roll"
-                onClick={roll}
-                disabled={busy || pickNeeded}
-                title="Space"
-              >
-                {busy ? 'Rolling…' : pickNeeded ? 'Choose a bowler' : '🎲 Roll'}
-              </button>
-              <div className="auto-row">
-                <button className={`btn ${auto ? 'btn-on' : ''}`} onClick={toggleAuto} title="A">
-                  {auto ? '⏸ Stop auto' : '▶ Auto-roll'}
-                </button>
-                <label className="small">
-                  until end of{' '}
-                  <select value={scope} onChange={(e) => setScope(e.target.value as Scope)}>
-                    <option value="over">this over</option>
-                    <option value="innings">this innings</option>
-                    <option value="match">the match</option>
-                  </select>
-                </label>
-              </div>
-              <div className="auto-row small">
-                <label>
-                  Every {(prefs.autoDelay / 1000).toFixed(1)}s
-                  <input
-                    type="range" min={300} max={5000} step={100} value={prefs.autoDelay}
-                    onChange={(e) => setPrefs({ autoDelay: Number(e.target.value) })}
-                  />
-                </label>
-                <label>
-                  Dice{' '}
-                  <select value={prefs.rollSpeed} onChange={(e) => setPrefs({ rollSpeed: e.target.value as RollSpeed })}>
-                    <option value="normal">Normal</option>
-                    <option value="fast">Fast</option>
-                    <option value="instant">Instant</option>
-                  </select>
-                </label>
-              </div>
-              <div className="sim-row">
-                <span className="small muted">Simulate:</span>
-                <button className="btn btn-sm" disabled={busy} onClick={() => sim('over')}>Over</button>
-                <button className="btn btn-sm" disabled={busy} onClick={() => sim('innings')}>Innings</button>
-                <button className="btn btn-sm" disabled={busy} onClick={() => sim('match')}>Match</button>
-              </div>
-            </>
-          )}
-
-          {pickNeeded && !busy && <BowlerPicker m={m} onPick={(id) => updateLive(setBowler(m, id))} />}
-
-          <Commentary
-            lines={commentary}
-            empty={<p className="muted small">{m.tossText}. Press Roll (or Space) to bowl.</p>}
-          />
-        </section>
-
-        {/* Scorecard */}
-        <section className="sc-panel">
-          <InningsTabs
-            m={m}
-            value={shownIdx}
-            onChange={(i) => setViewIdx(i === curIdx ? null : i)}
-          />
-          <ScorecardOrderToggle
-            value={tablesFirst ? 'tables-first' : 'charts-first'}
-            onChange={(v) => setPrefs({ scorecardOrder: v })}
-          />
-          {!tablesFirst && <MatchCharts m={m} idx={shownIdx} />}
-          <BattingCard m={m} idx={shownIdx} />
-          <BowlingCard m={m} idx={shownIdx} />
-          {tablesFirst && <MatchCharts m={m} idx={shownIdx} />}
-        </section>
+      <div className="play-top">
+        {scoreboard}
+        <button className="btn btn-sm play-leave" onClick={leave} title="The match is saved; resume any time">← Leave</button>
       </div>
-
-      <div className="footer-row">
-        <button className="btn btn-ghost" onClick={() => go(live.tournamentId ? { name: 'tourHub', id: live.tournamentId } : { name: 'home' })}>
-          ← Leave (match is saved, resume any time)
-        </button>
-        <span className="muted small">Space = roll · A = auto-roll</span>
+      <div className="play-dock">
+        {m.result ? (
+          <section className="result-banner">
+            <div>
+              <div className="result-title">🏆 {m.result.text}</div>
+              <div className="muted small">{live.saved ? 'Saved to stats.' : 'Saving…'} Swipe down for the full scorecard.</div>
+            </div>
+            <button className="btn btn-primary" onClick={closeLive}>
+              {live.tournamentId ? 'Back to tournament' : live.seriesId ? 'Back to series' : 'Finish'}
+            </button>
+          </section>
+        ) : (
+          <>
+            {pickNeeded && !busy && <BowlerPicker m={m} onPick={(id) => updateLive(setBowler(m, id))} />}
+            <div className="play-row">
+              {dice}
+              {rollButton}
+              <button className={`btn ${auto ? 'btn-on' : ''}`} onClick={toggleAuto} title="A" aria-pressed={auto}>
+                {auto ? '⏸' : '▶'}{wide ? (auto ? ' Stop auto' : ' Auto-roll') : ''}
+              </button>
+            </div>
+            {wide ? more : (
+              <details className="play-more">
+                <summary className="small">More: auto, speed, simulate</summary>
+                {more}
+              </details>
+            )}
+          </>
+        )}
+        <Commentary lines={commentary} empty={<p className="muted small">{m.tossText}. Press Roll (or Space) to bowl.</p>} />
       </div>
     </div>
+  );
+
+  const tabs = (
+    <div className="pager-head">
+      <InningsTabs m={m} value={shownIdx} onChange={(i) => setViewIdx(i === curIdx ? null : i)} />
+      <ScorecardOrderToggle value={tablesFirst ? 'tables-first' : 'charts-first'} onChange={(v) => setPrefs({ scorecardOrder: v })} />
+    </div>
+  );
+  const tables: PagerSection = {
+    id: 'tables', label: 'Scorecard', scroll: true,
+    content: <div className="pager-inner">{tabs}<BattingCard m={m} idx={shownIdx} /><BowlingCard m={m} idx={shownIdx} /></div>,
+  };
+  const graphs: PagerSection = {
+    id: 'graphs', label: 'Graphs', scroll: true,
+    content: <div className="pager-inner">{tabs}<MatchCharts m={m} idx={shownIdx} /></div>,
+  };
+
+  return (
+    <GameplayPager
+      sections={[{ id: 'play', label: 'Match', content: stageSection }, ...(tablesFirst ? [tables, graphs] : [graphs, tables])]}
+      fab={!m.result && <button className="btn btn-primary btn-roll pager-roll" onClick={roll} disabled={busy || pickNeeded} title="Space">{rollLabel}</button>}
+    />
   );
 }
 
