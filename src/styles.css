@@ -21,6 +21,9 @@
   --chip-run-text: #e6ede7;
   --chip-four: #1f6feb;
   --chip-six: #8250df;
+  --comm-four: #58a6ff;
+  --comm-six: #b98cff;
+  --comm-out: #ff5c5c;
   --chip-dot: #222d25;
   --chip-dot-text: #93a197;
   --chip-w: #d1242f;
@@ -224,9 +227,22 @@ input.text { padding: 6px 10px; width: 100%; max-width: 420px; }
 .auto-row label { display: flex; align-items: center; gap: 6px; }
 .auto-row input[type='range'] { width: 110px; }
 .sim-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; border-top: 1px dashed var(--border); padding-top: 10px; }
-.commentary { border-top: 1px solid var(--border); padding-top: 8px; max-height: 260px; overflow-y: auto; font-size: 0.9em; }
-.commentary p { margin: 0 0 6px; color: var(--muted); }
-.commentary p.comm-latest { color: var(--text); font-weight: 600; }
+.commentary {
+  /* Fixed height: room for two deliveries that wrap to two lines each (latest line is 1.08em). */
+  height: calc(5.65em + 39px); overflow-y: auto; scroll-behavior: smooth; font-size: 0.9em;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25); box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.35);
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.commentary p {
+  margin: 0; padding: 6px 0; color: var(--muted);
+  font-family: 'Russo One', system-ui, sans-serif; letter-spacing: 0.02em; line-height: 1.35;
+}
+.commentary p + p { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.commentary p.comm-latest { color: var(--text); font-size: 1.08em; }
+.comm-four { color: var(--comm-four); text-shadow: 0 0 8px rgba(88, 166, 255, 0.55); }
+.comm-six { color: var(--comm-six); text-shadow: 0 0 8px rgba(185, 140, 255, 0.55); }
+.comm-out { color: var(--comm-out); text-shadow: 0 0 8px rgba(255, 92, 92, 0.6); }
 
 .picker { border: 2px solid var(--accent); border-radius: 10px; padding: 10px; background: var(--surface-2); }
 .picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }

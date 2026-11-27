@@ -8,6 +8,7 @@ import {
 } from '../engine/match';
 import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
 import { MatchCharts } from '../components/Charts';
+import { Commentary } from '../components/Commentary';
 import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 
 type FlashKind = 'four' | 'six' | 'wicket';
@@ -372,12 +373,10 @@ export function MatchScreen() {
 
           {pickNeeded && !busy && <BowlerPicker m={m} onPick={(id) => updateLive(setBowler(m, id))} />}
 
-          <div className="commentary">
-            {commentary.length === 0 && <p className="muted small">{m.tossText}. Press Roll (or Space) to bowl.</p>}
-            {commentary.map((c, i) => (
-              <p key={i} className={i === 0 ? 'comm-latest' : ''}>{c}</p>
-            ))}
-          </div>
+          <Commentary
+            lines={commentary}
+            empty={<p className="muted small">{m.tossText}. Press Roll (or Space) to bowl.</p>}
+          />
         </section>
 
         {/* Scorecard */}

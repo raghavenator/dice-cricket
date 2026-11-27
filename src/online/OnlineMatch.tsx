@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MatchCharts } from '../components/Charts';
+import { Commentary } from '../components/Commentary';
 import { Die } from '../components/Die';
 import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { BallChip, BattingCard, BowlingCard, InningsTabs } from '../components/Scorecard';
@@ -281,12 +282,7 @@ export function OnlineMatch() {
             </>
           )}
 
-          <div className="commentary">
-            {commentary.length === 0 && <p className="muted small">{m.tossText}.</p>}
-            {commentary.map((c, i) => (
-              <p key={`${commentary.length - i}-${c}`} className={i === 0 ? 'comm-latest' : ''}>{c}</p>
-            ))}
-          </div>
+          <Commentary lines={commentary} empty={<p className="muted small">{m.tossText}.</p>} />
         </section>
 
         <section className="sc-panel">
