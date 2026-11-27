@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BOUNDARY_R, STUMPS_Z } from '../field';
 import { addMesh, canvasTexture, texRand, type Kit } from './kit';
 
@@ -68,30 +69,46 @@ export function buildStage(kit: Kit, scene: THREE.Scene, mobile: boolean): Stage
     [0, 0.01, 0], [1, 1, 1], [-Math.PI / 2, 0, 0], false);
   pitch.receiveShadow = true;
 
-  // Creases: one shared unit plane, scaled.
-  const line = kit.mat('crease', 0xf6f6f0, 0.9);
-  const unit = kit.memo('unitPlane', () => kit.own(new THREE.PlaneGeometry(1, 1)));
+  // Creases: all 14 lines merged into one mesh (one draw call).
+  const lines: THREE.BufferGeometry[] = [];
   const stripe = (x: number, z: number, w: number, d: number) => {
-    const m = addMesh(scene, unit, line, [x, 0.02, z], [w, d, 1], [-Math.PI / 2, 0, 0], false);
-    m.receiveShadow = true;
+    const g = new THREE.PlaneGeometry(w, d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(x, 0.02, z);
+    lines.push(g);
   };
   for (const e of [1, -1]) {
     stripe(0, e * STUMPS_Z, 2.64, 0.05);
     stripe(0, e * 8.84, 6.0, 0.05);
     for (const sx of [-1.32, 1.32]) stripe(sx, e * STUMPS_Z, 0.05, 2.44);
   }
+  const creases = new THREE.Mesh(kit.own(mergeGeometries(lines)!), kit.mat('crease', 0xf6f6f0, 0.9));
+  lines.forEach((g) => g.dispose());
+  creases.receiveShadow = true;
+  scene.add(creases);
 
   const wood = kit.mat('stump', 0xeadfc4, 0.55);
-  const makeWicket = (z: number): Wicket => {
-    const group = new THREE.Group();
-    const stumps = [-0.114, 0, 0.114].map((x) => addMesh(group, kit.cyl, wood, [x, 0.355, 0], [0.018, 0.71, 0.018]));
-    const bails = [-0.057, 0.057].map((x) => addMesh(group, kit.box, wood, [x, 0.72, 0], [0.11, 0.015, 0.015]));
-    group.position.z = z;
-    scene.add(group);
-    return { group, stumps, bails };
-  };
-  makeWicket(STUMPS_Z);
-  const wicket = makeWicket(-STUMPS_Z);
+  const wicketParts = (): { geo: THREE.BufferGeometry; pos: [number, number, number]; scale: [number, number, number] }[] => [
+    ...[-0.114, 0, 0.114].map((x) => ({ geo: kit.cyl as THREE.BufferGeometry, pos: [x, 0.355, 0] as [number, number, number], scale: [0.018, 0.71, 0.018] as [number, number, number] })),
+    ...[-0.057, 0.057].map((x) => ({ geo: kit.box as THREE.BufferGeometry, pos: [x, 0.72, 0] as [number, number, number], scale: [0.11, 0.015, 0.015] as [number, number, number] })),
+  ];
+  // The bowler's-end wicket never moves: one merged mesh.
+  const still = wicketParts().map((p) => {
+    const g = p.geo.clone();
+    g.scale(...p.scale);
+    g.translate(p.pos[0], p.pos[1], p.pos[2] + STUMPS_Z);
+    return g;
+  });
+  const farWicket = new THREE.Mesh(kit.own(mergeGeometries(still)!), wood);
+  still.forEach((g) => g.dispose());
+  farWicket.castShadow = true;
+  scene.add(farWicket);
+  // The striker's wicket gets knocked over, so its stumps and bails stay separate.
+  const group = new THREE.Group();
+  const parts = wicketParts().map((p) => addMesh(group, p.geo, wood, p.pos, p.scale));
+  group.position.z = -STUMPS_Z;
+  scene.add(group);
+  const wicket: Wicket = { group, stumps: parts.slice(0, 3), bails: parts.slice(3) };
 
   // Boundary rope.
   const rope = new THREE.Mesh(kit.own(new THREE.TorusGeometry(BOUNDARY_R, 0.14, 4, 120)), kit.mat('rope', 0xf2f2f2, 0.6));

@@ -40,6 +40,15 @@ Run `npm test` and `npm run build` before calling a change done; CI runs both on
 - `src/screens/`, `src/components/`: offline UI (`index.html` -> `src/main.tsx`).
 - `src/online/`: online 1v1 client (`online.html` -> `src/online/main.tsx`), with its own store, DB, protocol and tests.
 - `server/`: Cloudflare Worker (`index.ts`), lobby and room Durable Objects, `wrangler.jsonc`.
+- `src/match3d/`: the 3D per-ball clips (three.js), shared by both modes. Pure modules at the top level (no three.js): `outcome` (engine `Ball` -> clip), `rng` (seed from match id + innings + ball index, so online players see the same shot), `timing` (every clip timing, in one table), `plan`/`field`/`ballPath` (shot directions and ball flights), `fromMatch` (builds a delivery from match state). `scene/` holds the three.js code; it's lazy-loaded through `src/components/MatchStage.tsx`, so it never touches the main bundle.
+- `src/components/GameplayPager.tsx`, `useDeliveryTimeline.ts`, `MatchStage.tsx`: the swipe layout and one-clock-per-ball timeline both match screens use.
+
+## 3D clips
+
+- Clips follow the engine's result for each ball, never commentary text, and never feed back into scoring. Randomness lives only in `src/match3d/rng.ts`.
+- Online clips must show their result inside the server's ball gaps (`BALL_GAP_MS`, `CHECK_GAP_MS` in `src/online/room.ts`); `src/online/clipTiming.test.ts` checks this. Change `timing.ts`, not the server gaps.
+- Budget for phones: under 150 draw calls (including shadows) and 60k triangles at the busiest frame; `src/match3d/scene/budget.test.ts` checks it. Small parts don't cast shadows, and static things are merged.
+- Tune clips by eye at `http://localhost:5179/lab.html` (dev only; not in the build).
 
 ## Working with more than one Claude
 

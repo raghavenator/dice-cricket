@@ -45,30 +45,41 @@ function sideMats(kit: Kit) {
   };
 }
 
-/** Merge a posed player into one mesh per material: a handful of draw calls instead of ~25. */
-function bake(kit: Kit, P: Player): THREE.Group {
+/**
+ * Merge a posed player into two meshes: the kit-coloured clothes (sharing the side's shirt material, so
+ * recolouring a side still works) and everything else (skin, shoes, hat) with its colours baked into the
+ * vertices. Two draw calls instead of ~20.
+ */
+function bake(kit: Kit, P: Player, sideMat: THREE.Material, sideMats: Set<THREE.Material>): THREE.Group {
   P.root.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(P.root.matrixWorld).invert();
-  const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const side: THREE.BufferGeometry[] = [];
+  const rest: THREE.BufferGeometry[] = [];
   P.root.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh || !m.visible) return;
     const g = m.geometry.clone();
     g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
-    const mat = m.material as THREE.Material;
-    if (!byMat.has(mat)) byMat.set(mat, []);
-    byMat.get(mat)!.push(g);
+    const mat = m.material as THREE.MeshStandardMaterial;
+    if (sideMats.has(mat)) side.push(g);
+    else {
+      const c = mat.color;
+      const n = g.attributes.position.count;
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).map((_, i) => [c.r, c.g, c.b][i % 3]), 3));
+      rest.push(g);
+    }
   });
   const out = new THREE.Group();
-  for (const [mat, gs] of byMat) {
+  const add = (gs: THREE.BufferGeometry[], mat: THREE.Material) => {
     const merged = mergeGeometries(gs, false);
     gs.forEach((g) => g.dispose());
-    if (!merged) continue;
-    kit.own(merged);
-    const mesh = new THREE.Mesh(merged, mat);
+    if (!merged) return;
+    const mesh = new THREE.Mesh(kit.own(merged), mat);
     mesh.castShadow = false;
     out.add(mesh);
-  }
+  };
+  add(side, sideMat);
+  add(rest, kit.memo('liteMisc', () => kit.own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 }))));
   P.root.removeFromParent();
   return out;
 }
@@ -95,7 +106,7 @@ export function buildCast(kit: Kit, scene: THREE.Scene): Cast {
   const lite = FIELD_POSITIONS.map((f, i) => {
     const P = makePlayer(kit, scene, { ...field, skin: skins[i % skins.length], head: i % 3 ? 'cap' : 'hair', headColor: i % 3 ? 0x1e5a2e : 0x1b1410 });
     applyPose(P, P_READY);
-    const g = bake(kit, P);
+    const g = bake(kit, P, s.fieldShirt, new Set([s.fieldShirt, s.fieldPants]));
     const spot = fieldSpot(f);
     g.position.set(spot.x, 0, spot.z);
     g.rotation.y = Math.atan2(HIT_ORIGIN.x - spot.x, HIT_ORIGIN.z - spot.z);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { addMesh, type Kit } from './kit';
 import { smooth } from './rig';
 
@@ -18,13 +19,29 @@ export function keyedQ(keys: [number, THREE.Quaternion][], t: number, out = new 
   return out.copy(keys[keys.length - 1][1]);
 }
 
+/** A bat as one mesh: blade, back and grip merged, with the colours in the vertices (one draw call). */
 export function makeBat(kit: Kit, parent: THREE.Object3D): THREE.Group {
+  const geo = kit.memo('bat', () => {
+    const part = (src: THREE.BufferGeometry, pos: [number, number, number], scale: [number, number, number], color: number) => {
+      const g = src.clone();
+      g.scale(...scale);
+      g.translate(...pos);
+      const c = new THREE.Color(color);
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).map((_, i) => [c.r, c.g, c.b][i % 3]), 3));
+      return g;
+    };
+    const parts = [
+      part(kit.box, [0, 0.29, 0], [0.108, 0.56, 0.045], 0xe3cf9e),
+      part(kit.box, [0, 0.25, -0.025], [0.06, 0.4, 0.03], 0xe3cf9e),
+      part(kit.capsule(0.016, 0.26), [0, 0.72, 0], [1, 1, 1], 0x222222),
+    ];
+    const merged = mergeGeometries(parts)!;
+    parts.forEach((g) => g.dispose());
+    return kit.own(merged);
+  });
+  const mat = kit.memo('batMat', () => kit.own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 })));
   const g = new THREE.Group();
-  const wood = kit.mat('bat-wood', 0xe3cf9e, 0.55);
-  const grip = kit.mat('bat-grip', 0x222222, 0.8);
-  addMesh(g, kit.box, wood, [0, 0.29, 0], [0.108, 0.56, 0.045]);
-  addMesh(g, kit.box, wood, [0, 0.25, -0.025], [0.06, 0.4, 0.03]);
-  addMesh(g, kit.capsule(0.016, 0.26), grip, [0, 0.72, 0]);
+  addMesh(g, geo, mat);
   parent.add(g);
   return g;
 }

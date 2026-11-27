@@ -52,10 +52,12 @@ export function makePlayer(kit: Kit, parent: THREE.Object3D, o: PlayerLook): Pla
   const metal = kit.mat('metal', 0x8c9196, 0.4);
   const hw = kit.mat(`hat:${o.headColor}`, o.headColor, 0.6);
 
+  // Only the big parts (torso, head, legs) cast shadows: small parts add draw calls but no visible shadow.
+  const NO = false;
   const root = new THREE.Group();
   const hips = new THREE.Group();
   root.add(hips);
-  addMesh(hips, kit.capsule(0.12, 0.12), o.pants, [0, 0.02, 0], [1, 1, 0.85], [0, 0, Math.PI / 2]);
+  addMesh(hips, kit.capsule(0.12, 0.12), o.pants, [0, 0.02, 0], [1, 1, 0.85], [0, 0, Math.PI / 2], NO);
   const torso = new THREE.Group();
   torso.position.y = 0.07;
   hips.add(torso);
@@ -69,39 +71,40 @@ export function makePlayer(kit: Kit, parent: THREE.Object3D, o: PlayerLook): Pla
   const neck = new THREE.Group();
   neck.position.y = 0.56;
   torso.add(neck);
-  addMesh(neck, kit.capsule(0.05, 0.05), skin, [0, 0.03, 0]);
+  // No neck mesh: the head sits low enough on the torso that none shows (one draw call less per player).
   const head = new THREE.Group();
-  head.position.y = 0.1;
+  head.position.y = 0.07;
   head.rotation.order = 'YXZ';
   neck.add(head);
   addMesh(head, kit.sphere, skin, [0, 0.08, 0], [0.1, 0.118, 0.11]);
+  const Z: [number, number, number] = [0, 0, 0];
   if (o.head === 'cap') {
-    addMesh(head, kit.dome, hw, [0, 0.1, 0], [0.112, 0.1, 0.118]);
-    addMesh(head, kit.cyl, hw, [0, 0.1, 0.1], [0.1, 0.012, 0.09]);
+    addMesh(head, kit.dome, hw, [0, 0.1, 0], [0.112, 0.1, 0.118], Z, NO);
+    addMesh(head, kit.cyl, hw, [0, 0.1, 0.1], [0.1, 0.012, 0.09], Z, NO);
   } else if (o.head === 'helmet') {
-    addMesh(head, kit.dome, hw, [0, 0.06, -0.005], [0.13, 0.13, 0.138]);
-    addMesh(head, kit.cyl, hw, [0, 0.07, 0.1], [0.11, 0.012, 0.08]);
-    for (const y of [-0.02, 0.03]) addMesh(head, kit.box, metal, [0, y, 0.13], [0.19, 0.008, 0.008], [0, 0, 0], false);
-    addMesh(head, kit.box, metal, [0, 0.005, 0.13], [0.008, 0.07, 0.008], [0, 0, 0], false);
+    addMesh(head, kit.dome, hw, [0, 0.06, -0.005], [0.13, 0.13, 0.138], Z, NO);
+    addMesh(head, kit.cyl, hw, [0, 0.07, 0.1], [0.11, 0.012, 0.08], Z, NO);
+    // Grille: one thin plate (reads as bars at broadcast distance).
+    addMesh(head, kit.box, metal, [0, 0.005, 0.13], [0.19, 0.07, 0.008], Z, NO);
   } else if (o.head === 'umpire') {
-    addMesh(head, kit.cyl, hw, [0, 0.12, 0], [0.2, 0.012, 0.2]);
-    addMesh(head, kit.cyl, hw, [0, 0.17, 0], [0.112, 0.09, 0.115]);
+    addMesh(head, kit.cyl, hw, [0, 0.12, 0], [0.2, 0.012, 0.2], Z, NO);
+    addMesh(head, kit.cyl, hw, [0, 0.17, 0], [0.112, 0.09, 0.115], Z, NO);
   } else {
-    addMesh(head, kit.dome, hw, [0, 0.1, -0.005], [0.106, 0.085, 0.115]);
+    addMesh(head, kit.dome, hw, [0, 0.1, -0.005], [0.106, 0.085, 0.115], Z, NO);
   }
   const arm = (side: number): Limb => {
     const sh = new THREE.Group();
     sh.position.set(0.22 * side, 0.5, 0);
     torso.add(sh);
-    addMesh(sh, kit.capsule(0.055, 0.2), o.shirt, [0, -0.14, 0]);
+    addMesh(sh, kit.capsule(0.055, 0.2), o.shirt, [0, -0.14, 0], [1, 1, 1], Z, NO);
     const el = new THREE.Group();
     el.position.y = -0.3;
     sh.add(el);
-    addMesh(el, kit.capsule(0.045, 0.18), o.shirt, [0, -0.13, 0]);
+    addMesh(el, kit.capsule(0.045, 0.18), o.shirt, [0, -0.13, 0], [1, 1, 1], Z, NO);
     const hand = new THREE.Group();
     hand.position.y = -0.29;
     el.add(hand);
-    addMesh(hand, kit.sphere, glove, [0, -0.02, 0], o.gloves === 'keeper' ? [0.075, 0.065, 0.09] : [0.05, 0.05, 0.055]);
+    addMesh(hand, kit.sphere, glove, [0, -0.02, 0], o.gloves === 'keeper' ? [0.075, 0.065, 0.09] : [0.05, 0.05, 0.055], Z, NO);
     return { sh, el, hand };
   };
   const leg = (side: number): Leg => {
@@ -113,14 +116,12 @@ export function makePlayer(kit: Kit, parent: THREE.Object3D, o: PlayerLook): Pla
     kn.position.y = -0.45;
     hp.add(kn);
     addMesh(kn, kit.capsule(0.06, 0.3), o.pants, [0, -0.21, 0]);
-    if (o.pads) {
-      addMesh(kn, kit.box, padMat, [0, -0.2, 0.045], [0.15, 0.5, 0.12]);
-      addMesh(kn, kit.box, padMat, [0, 0.03, 0.06], [0.15, 0.13, 0.11]);
-    }
+    // One pad box from shin to just over the knee.
+    if (o.pads) addMesh(kn, kit.box, padMat, [0, -0.16, 0.05], [0.15, 0.6, 0.12], Z, NO);
     const ft = new THREE.Group();
     ft.position.y = -0.44;
     kn.add(ft);
-    addMesh(ft, kit.box, shoe, [0, 0, 0.05], [0.1, 0.07, 0.26]);
+    addMesh(ft, kit.box, shoe, [0, 0, 0.05], [0.1, 0.07, 0.26], Z, NO);
     return { hp, kn, ft };
   };
   const P: Player = { root, hips, torso, head, armL: arm(1), armR: arm(-1), legL: leg(1), legR: leg(-1), numberPlate };
