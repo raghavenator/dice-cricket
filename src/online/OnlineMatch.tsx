@@ -19,6 +19,7 @@ import { useOnline } from './useOnlineStore';
 import { useHoverCards } from './useRecords';
 import { useScorecardOrder } from './scorecardOrder';
 import { applyEvent } from './events';
+import { finalResult } from './finalResult';
 import { MatchStage, usePrefersReducedMotion } from '../components/MatchStage';
 import { GameplayPager, useMedia, type PagerSection } from '../components/GameplayPager';
 import { useDeliveryTimeline } from '../components/useDeliveryTimeline';
@@ -155,6 +156,17 @@ export function OnlineMatch() {
   // ---------- What I can do now ----------
 
   const busy = queue.length > 0;
+  // Once the last ball's clip has had its moment, put "YOU WON / YOU LOST" over the field.
+  const ended = !!m.result && !busy;
+  const [showFinal, setShowFinal] = useState(false);
+  useEffect(() => {
+    if (!ended) {
+      setShowFinal(false);
+      return;
+    }
+    const t = window.setTimeout(() => setShowFinal(true), 1200);
+    return () => window.clearTimeout(t);
+  }, [ended]);
   const me = view.you === 'host' ? view.host : view.guest!;
   const opponent = view.you === 'host' ? view.guest! : view.host;
   const live = view.phase === 'playing' && !m.result;
@@ -216,6 +228,7 @@ export function OnlineMatch() {
   };
 
   const waitingNow = waitingFor(m);
+  const final = showFinal && m.result ? finalResult(m.result, me.ownerId) : null;
   const rollLabel = me.auto.roll ? 'Auto roll is on' : busy ? 'Rolling…' : '🎲 Roll';
 
   // Scoreboard (the big FOUR!/SIX!/OUT! label shows on the 3D stage)
@@ -292,7 +305,14 @@ export function OnlineMatch() {
           setDiceMs({ d1: 0, d2: 0 });
           tl.skip();
         }}
-      />
+      >
+        {final && (
+          <div className={`stage-final stage-final-${final.tone}`} role="status">
+            <span className="stage-final-title">{final.title}</span>
+            {final.margin && <span className="stage-final-margin">{final.margin}</span>}
+          </div>
+        )}
+      </MatchStage>
       <div className="play-top">
         <div className="play-top-main">
           {scoreboard}
@@ -374,12 +394,13 @@ function TurnBanner({ view, busy }: { view: RoomView; busy: boolean }) {
   const opponent = view.you === 'host' ? view.guest! : view.host;
   if (status !== 'open') return <div className="on-turn">Reconnecting…</div>;
   if (clock.paused) return <div className="on-turn">Paused. Waiting for {opponent.nickname} to reconnect…</div>;
-  if (busy || !clock.turn) return <div className="on-turn">&nbsp;</div>;
+  // Nothing to say: take no space (it used to leave an empty box in the dock).
+  if (busy || !clock.turn) return null;
   const mine = clock.turn.seat === view.you;
   const { kind } = clock.turn;
   const { auto } = mine ? (view.you === 'host' ? view.host : view.guest!) : opponent;
   // Left to the game, so it is about to happen: nothing to say and nothing to count.
-  if ((kind === 'roll' || kind === 'batter' || kind === 'bowler') && auto[kind]) return <div className="on-turn">&nbsp;</div>;
+  if ((kind === 'roll' || kind === 'batter' || kind === 'bowler') && auto[kind]) return null;
   const doing: Record<string, [string, string]> = {
     bowler: ['Pick your bowler', 'Other player is picking a bowler'],
     batter: ['Pick your next batter', 'Other player is picking the next batter'],
