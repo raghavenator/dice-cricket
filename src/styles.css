@@ -757,3 +757,8 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .play-forfeit { align-self: center; }
 @media (min-width: 900px) { .play-top:has(.play-top-main) { right: 356px; max-width: none; } }
 .play-dock .on-turn { margin: 0; }
+
+/* Match screens: no top bar at all, the stage takes the whole screen (both games). */
+.app-match, .app:has(.pager-wrap) { --topbar-h: 0px; }
+.app-match .topbar, .app:has(.pager-wrap) .topbar { display: none; }
+.play-top { top: calc(8px + env(safe-area-inset-top)); }
