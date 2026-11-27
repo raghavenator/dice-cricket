@@ -75,11 +75,33 @@ export interface Timeline {
   clip: { skip: number; rate: number; result: number } | null;
 }
 
+/** Breathing room between the end of one clip and the next ball. */
+export const FIT_GAP_MS = 200;
+/** Fastest a fitted clip may play before it's not worth showing (label only instead). */
+export const FIT_MAX_RATE = 2.6;
+
+/**
+ * A clip that fits a fixed roll-to-roll period (offline auto-roll): normal pace when it fits, otherwise
+ * started at the gather and sped up, and label only when the period is too short for a clip.
+ */
+export function fitTimeline(kind: ClipKind, periodMs: number): Timeline {
+  const budget = (periodMs - FIT_GAP_MS) / 1000;
+  const full = RESULT[kind] + HOLD;
+  if (budget >= full) return timeline(kind, 'normal');
+  const rate = (full - CLIP.gather) / budget;
+  if (budget <= 0 || rate > FIT_MAX_RATE) return timeline(kind, 'instant');
+  return build(kind, { skip: CLIP.gather, rate });
+}
+
 export function timeline(kind: ClipKind, speed: Speed): Timeline {
   const check = isCheck(kind);
   if (speed === 'instant') return { die1At: 0, die2At: check ? 0 : null, resultAt: 0, endAt: 900, clip: null };
   if (speed === 'reduced') return { die1At: 200, die2At: check ? 350 : null, resultAt: 500, endAt: 1400, clip: null };
-  const p = profile(kind, speed)!;
+  return build(kind, profile(kind, speed)!);
+}
+
+function build(kind: ClipKind, p: Profile): Timeline {
+  const check = isCheck(kind);
   const result = p.result ?? RESULT[kind];
   const wall = (t: number) => Math.round((Math.max(0, t - p.skip) / p.rate) * 1000);
   return {

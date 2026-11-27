@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ClipKind } from './outcome';
-import { CLIP, RESULT, timeline, type Speed } from './timing';
+import { CLIP, FIT_GAP_MS, RESULT, fitTimeline, timeline, type Speed } from './timing';
 
 const KINDS: ClipKind[] = ['ground', 'four', 'six', 'bowled', 'caught', 'lbw', 'survive'];
 const CHECKS = new Set<ClipKind>(['bowled', 'caught', 'lbw', 'survive']);
@@ -37,5 +37,17 @@ describe('timeline', () => {
     }
   });
 
+  it('fits auto-roll clips inside the roll-to-roll period', () => {
+    for (const k of KINDS)
+      for (let period = 300; period <= 5000; period += 100) {
+        const t = fitTimeline(k, period);
+        if (t.clip) expect(t.endAt).toBeLessThanOrEqual(period - FIT_GAP_MS + 1);
+        expect(t.resultAt).toBeLessThan(period);
+      }
+    // Long periods play at normal pace; very short ones show the label only.
+    expect(fitTimeline('six', 5000)).toEqual(timeline('six', 'normal'));
+    expect(fitTimeline('six', 300).clip).toBeNull();
+    expect(fitTimeline('ground', 1500).clip!.rate).toBeGreaterThan(1);
+  });
 });
 // The online gaps check lives in src/online/clipTiming.test.ts: code outside src/online must not import online code.

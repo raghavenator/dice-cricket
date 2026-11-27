@@ -4,7 +4,7 @@ import { outcomeOf } from './outcome';
 import { planDelivery, type DeliveryPlan } from './plan';
 import { seedFor } from './rng';
 import type { Numbers } from './scene/cast';
-import { timeline, type Speed, type Timeline } from './timing';
+import { fitTimeline, timeline, type Speed, type Timeline } from './timing';
 
 export interface MatchDelivery {
   key: string;
@@ -35,7 +35,7 @@ export function waitingFor(m: MatchState): { kits: Kits; numbers: Numbers } {
  * The 3D delivery for the ball that turned `before` into `after` (both modes call this with the same states,
  * so online players get the same seed and the same shot). Null if no ball was added.
  */
-export function deliveryFor(before: MatchState, after: MatchState, speed: Speed): MatchDelivery | null {
+export function deliveryFor(before: MatchState, after: MatchState, speed: Speed | { fitMs: number }): MatchDelivery | null {
   const innIdx = before.innings.length - 1;
   const was = before.innings[innIdx];
   const inn = after.innings[innIdx];
@@ -58,7 +58,7 @@ export function deliveryFor(before: MatchState, after: MatchState, speed: Speed)
   return {
     key: `${after.id}:${innIdx}:${ballIdx}`,
     plan,
-    timeline: timeline(outcome.kind, speed),
+    timeline: typeof speed === 'string' ? timeline(outcome.kind, speed) : fitTimeline(outcome.kind, speed.fitMs),
     numbers: { striker: shirt(bat, ball.batterId), nonStriker: shirt(bat, nonStrikerId), bowler: shirt(bowl, ball.bowlerId), fielder },
     kits: kitsFor(bat.color, bowl.color),
   };

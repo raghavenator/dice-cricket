@@ -114,7 +114,10 @@ export function MatchScreen() {
     if (!cur || cur.result || phase !== 'idle' || needsBowler(cur)) return;
     const r = rollDice(Math.random);
     // The 3D clip shows this exact ball: preview it (applyBall is pure; commit applies it for real).
-    const speed: Speed = reduced ? 'reduced' : prefs.rollSpeed;
+    // Auto-roll: fit the clip to the roll-to-roll period. Manual rolls use the Dice speed setting.
+    const speed: Speed | { fitMs: number } = reduced
+      ? 'reduced'
+      : auto && prefs.rollSpeed !== 'instant' ? { fitMs: prefs.autoDelay } : prefs.rollSpeed;
     const d = deliveryFor(cur, applyBall(cur, r), speed)!;
     const t = d.timeline;
     setPhase('roll1');
@@ -135,7 +138,7 @@ export function MatchScreen() {
       } : undefined,
       onResult: () => commit(r),
     });
-  }, [phase, prefs.rollSpeed, reduced, commit, tl.start]);
+  }, [phase, prefs.rollSpeed, prefs.autoDelay, auto, reduced, commit, tl.start]);
 
   const skipBall = useCallback(() => {
     setDiceMs({ d1: 0, d2: 0 });
@@ -157,9 +160,12 @@ export function MatchScreen() {
       return;
     }
     if (needsBowler(m)) return; // waits for a manual pick
-    const t = window.setTimeout(roll, prefs.autoDelay);
+    // One ball every autoDelay, roll to roll (the clip is fitted to that period).
+    const since = tl.delivery ? performance.now() - tl.delivery.startedAt : Infinity;
+    const wait = Math.min(prefs.autoDelay, Math.max(0, prefs.autoDelay - since));
+    const t = window.setTimeout(roll, wait);
     return () => clearTimeout(t);
-  }, [auto, m, phase, scope, prefs.autoDelay, roll]);
+  }, [auto, m, phase, scope, prefs.autoDelay, roll, tl.delivery]);
 
   const toggleAuto = useCallback(() => {
     const cur = mRef.current;
