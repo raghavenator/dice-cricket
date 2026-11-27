@@ -92,6 +92,22 @@ const Q_LEAVE = qToe(0.3, 0.9, -0.2);
 
 /** The striker's swing for this plan: [pose keys, bat keys]. */
 function swing(plan: DeliveryPlan | null): [[number, Pose][], [number, THREE.Quaternion][]] {
+  if (plan?.kind === 'lbw') {
+    // Pads up: front leg across, bat held high, no shot.
+    const pad = lerpPose(P_STRIDE, P_BACKLIFT, 0.5);
+    return [
+      [[0, P_STANCE], [C - 0.85, P_STANCE], [C - 0.3, P_BACKLIFT], [C - 0.05, pad], [C + 0.6, pad]],
+      [[0, Q_STANCE], [C - 0.85, Q_STANCE], [C - 0.3, Q_BACKLIFT], [C - 0.05, Q_STRIDE], [C + 0.6, Q_STRIDE]],
+    ];
+  }
+  if (plan?.kind === 'bowled') {
+    // Too late: the bat is still coming down as the ball hits the stumps.
+    const late = 0.14;
+    return [
+      [[0, P_STANCE], [C - 0.85, P_STANCE], [C - 0.3 + late, P_BACKLIFT], [C - 0.12 + late, P_STRIDE], [C + late, P_CONTACT], [C + 0.27 + late, P_DRIVE], [C + 0.6, P_DRIVE]],
+      [[0, Q_STANCE], [C - 0.85, Q_STANCE], [C - 0.3 + late, Q_BACKLIFT], [C - 0.12 + late, Q_STRIDE], [C + late, Q_CONTACT], [C + 0.27 + late, Q_DRIVE], [C + 0.6, Q_DRIVE]],
+    ];
+  }
   if (plan?.survive === 'leave') {
     return [
       [[0, P_STANCE], [C - 0.85, P_STANCE], [C - 0.3, P_BACKLIFT], [C - 0.12, P_STRIDE], [C + 0.05, P_LEAVE], [C + 0.6, P_LEAVE]],

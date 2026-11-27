@@ -70,6 +70,22 @@ describe('3D world', () => {
     }
   });
 
+  it('misses with the bat when bowled, and shows the stumps as the ball hits', () => {
+    world.setDelivery(planDelivery(out('bowled'), 6), DEFAULT_KITS, {});
+    world.update(CLIP.contact, 1.6);
+    const bat = world.cast.strikerBat.position;
+    expect(bat.distanceTo(world.cast.ball.position)).toBeGreaterThan(0.3);
+    expect(world.camera.position.distanceTo(new THREE.Vector3(0, 0.4, -STUMPS_Z))).toBeLessThan(5);
+    world.update(CLIP.contact + 0.3, 1.6);
+    expect(world.cast.ball.position.z).toBeLessThan(-STUMPS_Z);
+  });
+
+  it('cuts to the umpire for the lbw decision', () => {
+    world.setDelivery(planDelivery(out('lbw'), 6), DEFAULT_KITS, {});
+    world.update(RESULT.lbw, 1.6);
+    expect(world.camera.position.distanceTo(world.cast.umpire.root.position)).toBeLessThan(6);
+  });
+
   it('raises the umpire\'s finger for lbw', () => {
     world.setDelivery(planDelivery(out('lbw'), 8), DEFAULT_KITS, {});
     world.update(RESULT.lbw + 0.2, 1.6);

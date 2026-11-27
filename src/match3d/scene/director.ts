@@ -32,7 +32,11 @@ export function aimCamera(cam: THREE.PerspectiveCamera, plan: DeliveryPlan | nul
   const target = tmpB.copy(BROADCAST_TARGET);
   const C = CLIP.contact;
 
-  if (plan && flight && t > C) {
+  // Bowled: cut to the stumps just before the ball arrives, so the hit is seen.
+  if (plan?.camera === 'stumps' && t > C - 0.12) {
+    pos.set(-2.7, 0.9, -7.4);
+    target.set(0, 0.4, -STUMPS_Z);
+  } else if (plan && flight && t > C) {
     const ball = v(flight(t));
     const lagged = v(flight(Math.max(C, t - 0.15)));
     const k = smooth(clamp01((t - C) / 0.45));
@@ -71,17 +75,11 @@ export function aimCamera(cam: THREE.PerspectiveCamera, plan: DeliveryPlan | nul
         }
         break;
       }
-      case 'stumps': {
-        if (t > C) {
-          pos.set(2.4, 1.3, -6.2);
-          target.set(0, 0.45, -STUMPS_Z);
-        }
-        break;
-      }
       case 'umpire': {
+        // Close on the umpire (facing the striker) for the decision.
         if (t > C + 0.3) {
-          pos.set(1.6, 2.0, -5.5);
-          target.set(0.35, 1.5, 11.6);
+          pos.set(1.3, 1.8, 7.6);
+          target.set(0.35, 1.45, 11.6);
         }
         break;
       }
