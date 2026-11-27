@@ -751,4 +751,9 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .play-top-main .scoreboard { flex: none; }
 .play-top-main .on-players { align-self: flex-start; display: flex; gap: 12px; flex-wrap: wrap; margin: 0; padding: 2px 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.5); color: #fff; }
 .play-spacer { flex: 1; text-align: center; }
+/* Online: no button beside the scoreboard, so it uses the full width. */
+.play-top:has(.play-top-main) { right: 8px; }
+.play-home { align-self: flex-start; background: rgba(0, 0, 0, 0.55); color: #fff; border-color: transparent; }
+.play-forfeit { align-self: center; }
+@media (min-width: 900px) { .play-top:has(.play-top-main) { right: 356px; max-width: none; } }
 .play-dock .on-turn { margin: 0; }

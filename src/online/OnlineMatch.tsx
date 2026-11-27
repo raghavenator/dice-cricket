@@ -300,8 +300,8 @@ export function OnlineMatch() {
             <span><Presence seat={me} /> {me.nickname} (you)</span>
             <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto.roll ? ' · auto roll on' : ''}</span>
           </div>
+          {!live && <button className="btn btn-sm play-home" onClick={leave}>← Online home</button>}
         </div>
-        <button className="btn btn-sm play-leave" onClick={leave}>{live ? 'Leave' : '← Online home'}</button>
       </div>
       <div className="play-dock">
         {m.result && !busy && <ResultBanner view={view} m={m} />}
@@ -326,12 +326,20 @@ export function OnlineMatch() {
           {!wide && dice}
           {showRoll ? rollButton : <span className="small muted play-spacer">{live && !picking ? 'Tap the field to skip' : ''}</span>}
         </div>
-        {live && (wide ? <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} /> : (
-          <details className="play-more">
-            <summary className="small">Auto settings</summary>
-            <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} />
-          </details>
-        ))}
+        {live && (() => {
+          const more = (
+            <>
+              <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} />
+              <button className="btn btn-ghost btn-sm play-forfeit" onClick={leave}>Leave match (forfeit)</button>
+            </>
+          );
+          return wide ? more : (
+            <details className="play-more">
+              <summary className="small">More: auto settings, leave</summary>
+              {more}
+            </details>
+          );
+        })()}
         <Commentary lines={commentary} empty={<p className="muted small">{m.tossText}.</p>} />
       </div>
     </div>
