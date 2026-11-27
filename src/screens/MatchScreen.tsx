@@ -10,14 +10,15 @@ import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
 import { MatchCharts } from '../components/Charts';
 import { Commentary } from '../components/Commentary';
 import { ScorecardOrderToggle } from '../components/ScorecardOrder';
+import { MatchStage, usePrefersReducedMotion } from '../components/MatchStage';
+import { useDeliveryTimeline } from '../components/useDeliveryTimeline';
+import { deliveryFor, waitingFor } from '../match3d/fromMatch';
+import type { Kits } from '../match3d/kits';
+import type { Speed } from '../match3d/timing';
 
 type FlashKind = 'four' | 'six' | 'wicket';
-const FLASH_TITLE: Record<FlashKind, string> = { four: 'FOUR!', six: 'SIX!', wicket: 'WICKET!' };
 import type { Ball, MatchState, Rolls } from '../engine/types';
 import { useGame, type RollSpeed } from '../store/useGameStore';
-
-const SPIN_MS: Record<RollSpeed, number> = { normal: 800, fast: 320, instant: 0 };
-const SETTLE_MS: Record<RollSpeed, number> = { normal: 350, fast: 120, instant: 0 };
 
 type Phase = 'idle' | 'roll1' | 'roll2';
 type Scope = 'over' | 'innings' | 'match';
@@ -62,12 +63,11 @@ export function MatchScreen() {
   const [scope, setScope] = useState<Scope>('innings');
   const anchor = useRef({ inn: 0, over: 0 });
   const [viewIdx, setViewIdx] = useState<number | null>(null);
-  const timers = useRef<number[]>([]);
-
-  useEffect(() => () => timers.current.forEach(clearTimeout), []);
-  const later = (fn: () => void, ms: number) => {
-    timers.current.push(window.setTimeout(fn, ms));
-  };
+  // One clock per ball for the dice, the 3D clip and the result.
+  const reduced = usePrefersReducedMotion();
+  const tl = useDeliveryTimeline();
+  const [diceMs, setDiceMs] = useState({ d1: 0, d2: 0 });
+  const [stageKits, setStageKits] = useState<Kits | null>(null);
 
   const [flash, setFlash] = useState<{ id: number; kind: FlashKind; sub: string } | null>(null);
 
@@ -113,22 +113,34 @@ export function MatchScreen() {
     const cur = mRef.current;
     if (!cur || cur.result || phase !== 'idle' || needsBowler(cur)) return;
     const r = rollDice(Math.random);
-    const spin = SPIN_MS[prefs.rollSpeed];
-    const settle = SETTLE_MS[prefs.rollSpeed];
+    // The 3D clip shows this exact ball: preview it (applyBall is pure; commit applies it for real).
+    const speed: Speed = reduced ? 'reduced' : prefs.rollSpeed;
+    const d = deliveryFor(cur, applyBall(cur, r), speed)!;
+    const t = d.timeline;
     setPhase('roll1');
     setShowCheck(false);
-    setD1((d) => ({ v: r.roll1, id: d.id + 1 }));
-    if (r.roll1 === 5) {
-      later(() => {
+    // Die 1 lands as the ball is released; die 2 (wicket check) lands at the bat.
+    setDiceMs({ d1: t.die1At, d2: t.die2At !== null ? t.die2At - t.die1At : 0 });
+    setD1((x) => ({ v: r.roll1, id: x.id + 1 }));
+    setStageKits(d.kits);
+    tl.start({
+      key: d.key,
+      plan: d.plan,
+      timeline: t,
+      numbers: d.numbers,
+      onCheck: r.roll1 === 5 ? () => {
         setPhase('roll2');
         setShowCheck(true);
-        setD2((d) => ({ v: r.roll2!, id: d.id + 1 }));
-        later(() => commit(r), spin + settle * 2);
-      }, spin + settle);
-    } else {
-      later(() => commit(r), spin + settle);
-    }
-  }, [phase, prefs.rollSpeed, commit]);
+        setD2((x) => ({ v: r.roll2!, id: x.id + 1 }));
+      } : undefined,
+      onResult: () => commit(r),
+    });
+  }, [phase, prefs.rollSpeed, reduced, commit, tl.start]);
+
+  const skipBall = useCallback(() => {
+    setDiceMs({ d1: 0, d2: 0 });
+    tl.skip();
+  }, [tl.skip]);
 
   // Auto-roll loop
   useEffect(() => {
@@ -200,6 +212,7 @@ export function MatchScreen() {
 
   const sim = (until: SimUntil) => {
     if (busy) return;
+    tl.cancel();
     const before = m;
     const next = simulate(m, Math.random, until);
     const lines: string[] = [];
@@ -237,17 +250,11 @@ export function MatchScreen() {
   }
 
   const bowlRow = inn.bowlerId ? bowlingCard(m, curIdx).find((r) => r.playerId === inn.bowlerId) : undefined;
-  const spin = SPIN_MS[prefs.rollSpeed];
+  const waiting = waitingFor(m);
 
   return (
     <div className="screen match">
-      {/* Scoreboard */}
-      {flash && (
-        <div key={flash.id} className={`flash flash-${flash.kind}`} aria-live="assertive">
-          <div className="flash-title">{FLASH_TITLE[flash.kind]}</div>
-          {flash.sub && <div className="flash-sub">{flash.sub}</div>}
-        </div>
-      )}
+      {/* Scoreboard (the big FOUR!/SIX!/OUT! label now shows on the 3D stage) */}
       <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
         {flash && <span key={flash.id} className={`sb-glow sb-glow-${flash.kind}`} aria-hidden />}
         <div className="sb-main">
@@ -305,16 +312,24 @@ export function MatchScreen() {
         </section>
       )}
 
+      <MatchStage
+        className="match-stage"
+        delivery={tl.delivery}
+        kits={(tl.delivery && stageKits) || waiting.kits}
+        idleNumbers={waiting.numbers}
+        onSkip={skipBall}
+      />
+
       <div className="match-grid">
         {/* Dice panel */}
         <section className="dice-panel card">
           <div className="dice-row">
             <div className="die-slot">
-              <Die value={d1.v} rollId={d1.id} duration={spin} size={104} />
+              <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={104} />
               <span className="small muted">Delivery</span>
             </div>
             <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
-              <Die value={d2.v} rollId={d2.id} duration={spin} size={72} tone="check" dim={!showCheck} />
+              <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={72} tone="check" dim={!showCheck} />
               <span className="small muted">Wicket check</span>
             </div>
           </div>
