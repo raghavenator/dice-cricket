@@ -743,3 +743,12 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
   .pager-dots { right: auto; left: 10px; }
   .pager-hint { right: auto; left: 30px; }
 }
+
+/* Online match on the pager: scoreboard + who's here, stacked over the stage; slim top bar whenever a pager is showing. */
+.app:has(.pager-wrap) { --topbar-h: 44px; }
+.app:has(.pager-wrap) .topbar { height: var(--topbar-h); box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
+.play-top-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.play-top-main .scoreboard { flex: none; }
+.play-top-main .on-players { align-self: flex-start; display: flex; gap: 12px; flex-wrap: wrap; margin: 0; padding: 2px 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.5); color: #fff; }
+.play-spacer { flex: 1; text-align: center; }
+.play-dock .on-turn { margin: 0; }

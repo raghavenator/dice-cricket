@@ -18,13 +18,18 @@ import { Countdown, secondsLeft, useServerNow } from './time';
 import { useOnline } from './useOnlineStore';
 import { useHoverCards } from './useRecords';
 import { useScorecardOrder } from './scorecardOrder';
+import { applyEvent } from './events';
+import { MatchStage, usePrefersReducedMotion } from '../components/MatchStage';
+import { GameplayPager, useMedia, type PagerSection } from '../components/GameplayPager';
+import { useDeliveryTimeline } from '../components/useDeliveryTimeline';
+import { deliveryFor, waitingFor } from '../match3d/fromMatch';
+import type { Kits } from '../match3d/kits';
+import type { Speed } from '../match3d/timing';
 
-// Must fit inside BALL_GAP_MS and CHECK_GAP_MS in room.ts, or one player's dice would run behind.
-const SPIN_MS = 800;
-const SETTLE_MS = 350;
+// Ball clips use the 'online' timing, which fits inside BALL_GAP_MS and CHECK_GAP_MS in room.ts
+// (checked in clipTiming.test.ts), so both players' clips finish before the next ball.
 
 type FlashKind = 'four' | 'six' | 'wicket';
-const FLASH_TITLE: Record<FlashKind, string> = { four: 'FOUR!', six: 'SIX!', wicket: 'WICKET!' };
 
 const nameOf = (m: MatchState, playerId: string) =>
   m.teams.flatMap((t) => t.players).find((p) => p.id === playerId)?.name ?? '?';
@@ -74,7 +79,11 @@ export function OnlineMatch() {
   const [d1, setD1] = useState<{ v: number | null; id: number }>({ v: null, id: 0 });
   const [d2, setD2] = useState<{ v: number | null; id: number }>({ v: null, id: 0 });
   const [showCheck, setShowCheck] = useState(false);
-  const [spinMs, setSpinMs] = useState(SPIN_MS);
+  const [diceMs, setDiceMs] = useState({ d1: 0, d2: 0 });
+  const [stageKits, setStageKits] = useState<Kits | null>(null);
+  const tl = useDeliveryTimeline();
+  const reduced = usePrefersReducedMotion();
+  const wide = useMedia('(min-width: 900px)');
   const [commentary, setCommentary] = useState<string[]>([]);
   const [flash, setFlash] = useState<{ id: number; kind: FlashKind; sub: string } | null>(null);
   const [viewIdx, setViewIdx] = useState<number | null>(null);
@@ -109,22 +118,38 @@ export function OnlineMatch() {
     const { roll1, roll2 } = head.event.rolls;
     // Nobody is watching, or we have fallen behind: catch up without the animation.
     const behind = useOnline.getState().queue.filter((q) => q.kind === 'event' && q.event.type === 'ball').length > 2;
-    const fast = document.hidden || behind;
-    const spin = fast ? 0 : SPIN_MS;
-    const settle = fast ? 0 : SETTLE_MS;
-    const timers: number[] = [];
-    const later = (fn: () => void, ms: number) => timers.push(window.setTimeout(fn, ms));
-    setSpinMs(spin);
+    const speed: Speed = document.hidden || behind ? 'instant' : reduced ? 'reduced' : 'online';
+    // Preview the ball (applyEvent is pure) so the 3D clip shows exactly what the server rolled.
+    // Both players build it from the same state, so they see the same shot.
+    const before = useOnline.getState().match;
+    let d: ReturnType<typeof deliveryFor> = null;
+    try {
+      d = before ? deliveryFor(before, applyEvent(before, head.event), speed) : null;
+    } catch {
+      d = null; // out of step: advance() will resync
+    }
+    if (!d) {
+      apply();
+      return;
+    }
+    const timeline = d.timeline;
     setShowCheck(false);
-    setD1((d) => ({ v: roll1, id: d.id + 1 }));
-    if (roll2 === undefined) later(apply, spin + settle);
-    else
-      later(() => {
+    setDiceMs({ d1: timeline.die1At, d2: timeline.die2At !== null ? timeline.die2At - timeline.die1At : 0 });
+    setD1((x) => ({ v: roll1, id: x.id + 1 }));
+    setStageKits(d.kits);
+    tl.start({
+      key: d.key,
+      plan: d.plan,
+      timeline,
+      numbers: d.numbers,
+      onCheck: roll2 !== undefined ? () => {
         setShowCheck(true);
-        setD2((d) => ({ v: roll2, id: d.id + 1 }));
-        later(apply, spin + settle * 2);
-      }, spin + settle);
-    return () => timers.forEach(clearTimeout);
+        setD2((x) => ({ v: roll2, id: x.id + 1 }));
+      } : undefined,
+      onResult: apply,
+    });
+    // A snapshot replaced the queue: drop this ball's timers (the stage keeps its last frame).
+    return () => tl.cancel(true);
   }, [head, advance]);
 
   // ---------- What I can do now ----------
@@ -190,14 +215,11 @@ export function OnlineMatch() {
     void useOnline.getState().leave().then(goHome);
   };
 
-  return (
-    <div className="screen match">
-      {flash && (
-        <div key={flash.id} className={`flash flash-${flash.kind}`} aria-live="assertive">
-          <div className="flash-title">{FLASH_TITLE[flash.kind]}</div>
-          {flash.sub && <div className="flash-sub">{flash.sub}</div>}
-        </div>
-      )}
+  const waitingNow = waitingFor(m);
+  const rollLabel = me.auto.roll ? 'Auto roll is on' : busy ? 'Rolling…' : '🎲 Roll';
+
+  // Scoreboard (the big FOUR!/SIX!/OUT! label shows on the 3D stage)
+  const scoreboard = (
       <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
         {flash && <span key={flash.id} className={`sb-glow sb-glow-${flash.kind}`} aria-hidden />}
         <div className="on-sb-head">
@@ -240,71 +262,101 @@ export function OnlineMatch() {
           )}
         </div>
       </section>
+  );
 
-      <div className="on-players small">
-        <span><Presence seat={me} /> {me.nickname} (you)</span>
-        <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto.roll ? ' · auto roll on' : ''}</span>
+  const dice = (
+    <div className="play-dice" title="1·2·3·4·6 = runs | 5 = wicket check (4+ out, 3 or less dot)">
+      <div className="die-slot">
+        <Die value={d1.v} rollId={d1.id} duration={diceMs.d1} size={wide ? 64 : 46} />
+        {wide && <span className="small muted">Delivery</span>}
       </div>
-
-      {m.result && !busy && <ResultBanner view={view} m={m} />}
-
-      <div className="match-grid">
-        <section className="dice-panel card">
-          <div className="dice-row">
-            <div className="die-slot">
-              <Die value={d1.v} rollId={d1.id} duration={spinMs} size={104} />
-              <span className="small muted">Delivery</span>
-            </div>
-            <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
-              <Die value={d2.v} rollId={d2.id} duration={spinMs} size={72} tone="check" dim={!showCheck} />
-              <span className="small muted">Wicket check</span>
-            </div>
-          </div>
-          <div className="dice-legend small muted">
-            1·2·3·4·6 = runs &nbsp;|&nbsp; 5 = wicket check (4+ out, 3 or less dot)
-          </div>
-
-          {live && (
-            <>
-              <TurnBanner view={view} busy={busy} />
-              {clock.paused && clock.claimAt !== null && (
-                <button className="btn" disabled={now < clock.claimAt} onClick={() => ask({ t: 'claimWin' })}>
-                  {now < clock.claimAt ? `Claim the win in ${secondsLeft(clock.claimAt, now)}s` : 'Claim the win'}
-                </button>
-              )}
-              {batting && !picking && (
-                <button className="btn btn-primary btn-roll" disabled={!canRoll} onClick={() => rollRef.current()} title="Space">
-                  {me.auto.roll ? 'Auto roll is on' : busy ? 'Rolling…' : '🎲 Roll'}
-                </button>
-              )}
-              {picking && turn?.kind === 'bowler' && (
-                <BowlerPicker m={m} suggested={suggestBowler(m, me.ownerId, view.lineup)} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBowler', playerId })} />
-              )}
-              {picking && turn?.kind === 'batter' && (
-                <BatterPicker m={m} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBatter', playerId })} />
-              )}
-              <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} />
-            </>
-          )}
-
-          <Commentary lines={commentary} empty={<p className="muted small">{m.tossText}.</p>} />
-        </section>
-
-        <section className="sc-panel">
-          <InningsTabs m={m} value={shownIdx} onChange={(i) => setViewIdx(i === curIdx ? null : i)} />
-          <ScorecardOrderToggle value={order} onChange={setOrder} />
-          {order === 'charts-first' && <MatchCharts m={m} idx={shownIdx} />}
-          <BattingCard m={m} idx={shownIdx} />
-          <BowlingCard m={m} idx={shownIdx} />
-          {order === 'tables-first' && <MatchCharts m={m} idx={shownIdx} />}
-        </section>
-      </div>
-
-      <div className="footer-row">
-        <button className="btn btn-ghost" onClick={leave}>{live ? 'Leave (forfeit)' : '← Online home'}</button>
-        {batting && live && !me.auto.roll && <span className="muted small">Space = roll</span>}
+      <div className={`die-slot ${showCheck ? '' : 'die-slot-off'}`}>
+        <Die value={d2.v} rollId={d2.id} duration={diceMs.d2} size={wide ? 46 : 36} tone="check" dim={!showCheck} />
+        {wide && <span className="small muted">Wicket check</span>}
       </div>
     </div>
+  );
+  const showRoll = live && batting && !picking;
+  const rollButton = (
+    <button className="btn btn-primary btn-roll" disabled={!canRoll} onClick={() => rollRef.current()} title="Space">{rollLabel}</button>
+  );
+
+  const stageSection = (
+    <div className="play">
+      <MatchStage
+        className="play-stage"
+        delivery={tl.delivery}
+        kits={(tl.delivery && stageKits) || waitingNow.kits}
+        idleNumbers={waitingNow.numbers}
+        onSkip={() => {
+          setDiceMs({ d1: 0, d2: 0 });
+          tl.skip();
+        }}
+      />
+      <div className="play-top">
+        <div className="play-top-main">
+          {scoreboard}
+          <div className="on-players small">
+            <span><Presence seat={me} /> {me.nickname} (you)</span>
+            <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto.roll ? ' · auto roll on' : ''}</span>
+          </div>
+        </div>
+        <button className="btn btn-sm play-leave" onClick={leave}>{live ? 'Leave' : '← Online home'}</button>
+      </div>
+      <div className="play-dock">
+        {m.result && !busy && <ResultBanner view={view} m={m} />}
+        {live && (
+          <>
+            <TurnBanner view={view} busy={busy} />
+            {clock.paused && clock.claimAt !== null && (
+              <button className="btn" disabled={now < clock.claimAt} onClick={() => ask({ t: 'claimWin' })}>
+                {now < clock.claimAt ? `Claim the win in ${secondsLeft(clock.claimAt, now)}s` : 'Claim the win'}
+              </button>
+            )}
+            {picking && turn?.kind === 'bowler' && (
+              <BowlerPicker m={m} suggested={suggestBowler(m, me.ownerId, view.lineup)} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBowler', playerId })} />
+            )}
+            {picking && turn?.kind === 'batter' && (
+              <BatterPicker m={m} disabled={waiting} onPick={(playerId) => ask({ t: 'chooseBatter', playerId })} />
+            )}
+          </>
+        )}
+        {wide && dice}
+        <div className="play-row">
+          {!wide && dice}
+          {showRoll ? rollButton : <span className="small muted play-spacer">{live && !picking ? 'Tap the field to skip' : ''}</span>}
+        </div>
+        {live && (wide ? <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} /> : (
+          <details className="play-more">
+            <summary className="small">Auto settings</summary>
+            <AutoToggles auto={me.auto} show={['roll', 'batter', 'bowler']} />
+          </details>
+        ))}
+        <Commentary lines={commentary} empty={<p className="muted small">{m.tossText}.</p>} />
+      </div>
+    </div>
+  );
+
+  const tabs = (
+    <div className="pager-head">
+      <InningsTabs m={m} value={shownIdx} onChange={(i) => setViewIdx(i === curIdx ? null : i)} />
+      <ScorecardOrderToggle value={order} onChange={setOrder} />
+    </div>
+  );
+  const tables: PagerSection = {
+    id: 'tables', label: 'Scorecard', scroll: true,
+    content: <div className="pager-inner">{tabs}<BattingCard m={m} idx={shownIdx} /><BowlingCard m={m} idx={shownIdx} /></div>,
+  };
+  const graphs: PagerSection = {
+    id: 'graphs', label: 'Graphs', scroll: true,
+    content: <div className="pager-inner">{tabs}<MatchCharts m={m} idx={shownIdx} /></div>,
+  };
+
+  return (
+    <GameplayPager
+      sections={[{ id: 'play', label: 'Match', content: stageSection }, ...(order === 'tables-first' ? [tables, graphs] : [graphs, tables])]}
+      fab={showRoll && <button className="btn btn-primary btn-roll pager-roll" disabled={!canRoll} onClick={() => rollRef.current()} title="Space">{rollLabel}</button>}
+    />
   );
 }
 
