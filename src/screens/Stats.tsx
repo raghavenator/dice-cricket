@@ -350,7 +350,7 @@ export function StatsScreen({ tournamentId, seriesId, view }: { tournamentId?: s
 
 export function MatchView({ matchId, back }: { matchId: string; back: Screen }) {
   const go = useGame((s) => s.go);
-  const order = useGame((s) => s.prefs.scorecardOrder) ?? 'charts-first';
+  const order = useGame((s) => s.prefs.scorecardOrder) ?? 'tables-first';
   const setPrefs = useGame((s) => s.setPrefs);
   const [rec, setRec] = useState<MatchRecord | null | undefined>(undefined);
   const [idx, setIdx] = useState(0);

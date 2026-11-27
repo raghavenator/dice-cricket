@@ -50,7 +50,8 @@ export function MatchScreen() {
   const go = useGame((s) => s.go);
   const prefs = useGame((s) => s.prefs);
   const setPrefs = useGame((s) => s.setPrefs);
-  const tablesFirst = prefs.scorecardOrder === 'tables-first';
+  // Tables above graphs unless the player picked graphs first.
+  const tablesFirst = prefs.scorecardOrder !== 'charts-first';
 
   const m = live?.match ?? null;
   const mRef = useRef(m);
@@ -398,7 +399,7 @@ export function MatchScreen() {
       <div className="play-top">
         <div className="play-top-main">
           {scoreboard}
-          <button className="btn btn-sm play-home" onClick={leave} title="The match is saved; resume any time">← Leave</button>
+          <button className="btn play-home play-leave-big" onClick={leave} title="The match is saved; resume any time">← Leave</button>
         </div>
       </div>
       <div className="play-dock">

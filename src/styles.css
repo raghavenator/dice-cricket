@@ -784,3 +784,5 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .stage:has(.stage-final) .stage-label-wrap { display: none; }
 /* Offline: the title is a team name, so a little smaller. */
 .stage-final-long { font-size: clamp(2rem, 9vw, 4.6rem); max-width: 90%; }
+/* Offline Leave: a full-size button, easy to hit. */
+.play-leave-big { padding: 8px 18px; font-size: 1rem; font-weight: 600; }

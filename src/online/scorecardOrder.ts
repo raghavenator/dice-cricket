@@ -6,9 +6,9 @@ const KEY = `dice-cricket-online-scorecard-order${ALIAS}`;
 
 function load(): ScorecardOrder {
   try {
-    return localStorage.getItem(KEY) === 'tables-first' ? 'tables-first' : 'charts-first';
+    return localStorage.getItem(KEY) === 'charts-first' ? 'charts-first' : 'tables-first';
   } catch {
-    return 'charts-first';
+    return 'tables-first';
   }
 }
 
@@ -20,7 +20,7 @@ export function useScorecardOrder(): [ScorecardOrder, (v: ScorecardOrder) => voi
     try {
       localStorage.setItem(KEY, v);
     } catch {
-      // Not remembered: the next visit starts with graphs on top.
+      // Not remembered: the next visit starts with tables on top.
     }
   };
   return [order, set];

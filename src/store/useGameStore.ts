@@ -43,7 +43,7 @@ export interface Prefs {
   storyDetail?: StoryDetail;
   storyPrompt?: string;
   storyIncludePrompt?: boolean;
-  /** Match screen: show the worm/per-over charts above or below the batting and bowling tables. */
+  /** Match screen: show the batting and bowling tables above the charts (default) or below them. */
   scorecardOrder?: ScorecardOrder;
 }
 
