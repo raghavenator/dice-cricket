@@ -376,8 +376,10 @@ export function MatchScreen() {
         onSkip={skipBall}
       />
       <div className="play-top">
-        {scoreboard}
-        <button className="btn btn-sm play-leave" onClick={leave} title="The match is saved; resume any time">← Leave</button>
+        <div className="play-top-main">
+          {scoreboard}
+          <button className="btn btn-sm play-home" onClick={leave} title="The match is saved; resume any time">← Leave</button>
+        </div>
       </div>
       <div className="play-dock">
         {m.result ? (
