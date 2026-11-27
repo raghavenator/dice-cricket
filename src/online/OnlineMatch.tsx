@@ -200,12 +200,17 @@ export function OnlineMatch() {
       )}
       <section className="scoreboard" style={{ ['--team' as string]: batTeam.color }}>
         {flash && <span key={flash.id} className={`sb-glow sb-glow-${flash.kind}`} aria-hidden />}
-        <div className="sb-main">
+        <div className="on-sb-head">
           <div className="sb-team">
             <span className="sb-swatch" />
             <span className="sb-name">{batTeam.name}</span>
-            <span className="sb-vs muted">v {bowlTeam.short} · {batting ? 'you are batting' : 'you are bowling'}</span>
+            <span className="sb-vs muted">v {bowlTeam.short}</span>
           </div>
+          <div className={`on-role on-role-${batting ? 'bat' : 'bowl'}`} aria-live="polite">
+            <span aria-hidden>{batting ? '🏏' : '🎯'}</span> {batting ? "You're batting" : "You're bowling"}
+          </div>
+        </div>
+        <div className="sb-main">
           <div className="sb-score">
             {inn.runs}/{inn.wickets}
             <span className="sb-overs">{formatOvers(inn.legalBalls)}/{limit} ov</span>

@@ -3,6 +3,27 @@
 .topbar .on-link { color: #fff; }
 .on-badge { background: rgba(255, 255, 255, 0.16); border-radius: 999px; padding: 2px 10px; font-size: 0.85em; font-weight: 700; }
 .on-narrow { max-width: 760px; }
+
+/* Match scoreboard: team name on the left and a big "You're batting / bowling" badge on the right, across the full width. */
+.on-sb-head { flex: 1 1 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: -8px; }
+/* Never wrap or overflow: if space runs out, the team name shortens with "…" and the badge stays whole. */
+.on-sb-head .sb-team { flex: 1 1 auto; min-width: 0; }
+.on-sb-head .sb-swatch, .on-sb-head .sb-vs { flex: none; white-space: nowrap; }
+.on-sb-head .sb-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.on-role {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; border-radius: 999px;
+  font-family: 'Russo One', system-ui, sans-serif; font-size: clamp(0.82rem, 2.8vw, 1.05rem); letter-spacing: 0.05em;
+  text-transform: uppercase; line-height: 1.2; white-space: nowrap;
+}
+/* Phones (e.g. iPhone 16, 393px): smaller badge, slimmer scoreboard padding, and no "v FAL" so the full team name fits. */
+@media (max-width: 480px) {
+  .scoreboard { padding-left: 14px; padding-right: 14px; }
+  .on-sb-head { gap: 8px; }
+  .on-sb-head .sb-vs { display: none; }
+  .on-role { font-size: 0.74rem; letter-spacing: 0.02em; gap: 4px; padding: 3px 8px; }
+}
+.on-role-bat { background: #f2b632; color: #1d1600; box-shadow: 0 0 14px rgba(242, 182, 50, 0.45); }
+.on-role-bowl { background: #2f8cff; color: #fff; box-shadow: 0 0 14px rgba(47, 140, 255, 0.45); }
 .on-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .on-form { display: inline-flex; gap: 4px; }
 .on-result { display: flex; align-items: center; gap: 8px; }
