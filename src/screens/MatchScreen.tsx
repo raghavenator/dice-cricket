@@ -8,6 +8,7 @@ import {
 } from '../engine/match';
 import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
 import { MatchCharts } from '../components/Charts';
+import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 
 type FlashKind = 'four' | 'six' | 'wicket';
 const FLASH_TITLE: Record<FlashKind, string> = { four: 'FOUR!', six: 'SIX!', wicket: 'WICKET!' };
@@ -45,6 +46,7 @@ export function MatchScreen() {
   const go = useGame((s) => s.go);
   const prefs = useGame((s) => s.prefs);
   const setPrefs = useGame((s) => s.setPrefs);
+  const tablesFirst = prefs.scorecardOrder === 'tables-first';
 
   const m = live?.match ?? null;
   const mRef = useRef(m);
@@ -385,9 +387,14 @@ export function MatchScreen() {
             value={shownIdx}
             onChange={(i) => setViewIdx(i === curIdx ? null : i)}
           />
-          <MatchCharts m={m} idx={shownIdx} />
+          <ScorecardOrderToggle
+            value={tablesFirst ? 'tables-first' : 'charts-first'}
+            onChange={(v) => setPrefs({ scorecardOrder: v })}
+          />
+          {!tablesFirst && <MatchCharts m={m} idx={shownIdx} />}
           <BattingCard m={m} idx={shownIdx} />
           <BowlingCard m={m} idx={shownIdx} />
+          {tablesFirst && <MatchCharts m={m} idx={shownIdx} />}
         </section>
       </div>
 

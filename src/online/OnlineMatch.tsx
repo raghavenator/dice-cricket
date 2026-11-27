@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { MatchCharts } from '../components/Charts';
 import { Die } from '../components/Die';
+import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { BallChip, BattingCard, BowlingCard, InningsTabs } from '../components/Scorecard';
 import { BALLS_PER_OVER, bowlerOptions, currentInnings, getTeam, oversLimit } from '../engine/match';
 import { battingCard, bowlingCard, formatOvers, ratio } from '../engine/stats';
@@ -15,6 +16,7 @@ import { nextBatterOptions } from './rules';
 import { Countdown, secondsLeft, useServerNow } from './time';
 import { useOnline } from './useOnlineStore';
 import { useHoverCards } from './useRecords';
+import { useScorecardOrder } from './scorecardOrder';
 
 // Must fit inside BALL_GAP_MS and CHECK_GAP_MS in room.ts, or one player's dice would run behind.
 const SPIN_MS = 800;
@@ -75,6 +77,7 @@ export function OnlineMatch() {
   const [commentary, setCommentary] = useState<string[]>([]);
   const [flash, setFlash] = useState<{ id: number; kind: FlashKind; sub: string } | null>(null);
   const [viewIdx, setViewIdx] = useState<number | null>(null);
+  const [order, setOrder] = useScorecardOrder();
 
   // ---------- Playing out what the server sent ----------
 
@@ -288,9 +291,11 @@ export function OnlineMatch() {
 
         <section className="sc-panel">
           <InningsTabs m={m} value={shownIdx} onChange={(i) => setViewIdx(i === curIdx ? null : i)} />
-          <MatchCharts m={m} idx={shownIdx} />
+          <ScorecardOrderToggle value={order} onChange={setOrder} />
+          {order === 'charts-first' && <MatchCharts m={m} idx={shownIdx} />}
           <BattingCard m={m} idx={shownIdx} />
           <BowlingCard m={m} idx={shownIdx} />
+          {order === 'tables-first' && <MatchCharts m={m} idx={shownIdx} />}
         </section>
       </div>
 

@@ -410,6 +410,7 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 .viz-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
 .viz-grid-2 > .viz { margin-bottom: 0; }
 .viz-wrap { margin-bottom: 14px; }
+.sc-order { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
 .viz-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 10px 14px 0; }
 .viz-head h3 { margin: 0; font-size: 0.95rem; }
 .viz-legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.8em; color: var(--muted); }

@@ -6,6 +6,7 @@ import { createTournament, recordResult, type Structure, type Tournament } from 
 import { createSeries, recordSeriesResult, type Leg, type Series } from '../engine/series';
 import type { Format, MatchSettings, MatchState, Team } from '../engine/types';
 import type { StoryDetail } from '../engine/story';
+import type { ScorecardOrder } from '../components/ScorecardOrder';
 
 export type Screen =
   | { name: 'home' }
@@ -42,6 +43,8 @@ export interface Prefs {
   storyDetail?: StoryDetail;
   storyPrompt?: string;
   storyIncludePrompt?: boolean;
+  /** Match screen: show the worm/per-over charts above or below the batting and bowling tables. */
+  scorecardOrder?: ScorecardOrder;
 }
 
 const DEFAULT_PREFS: Prefs = {
