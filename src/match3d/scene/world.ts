@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FIELD_POSITIONS, STUMPS_Z, fieldSpot, type Vec3 } from '../field';
 import type { Kits } from '../kits';
-import { flightOf, type DeliveryPlan, type FlightPoints } from '../plan';
+import { TO_KEEPER, flightOf, type DeliveryPlan, type FlightPoints } from '../plan';
 import { CLIP } from '../timing';
 import { BALL_DRAW_R, buildCast, dressCast, type Cast, type Numbers } from './cast';
 import { poseAt, sweetSpot, type Scene3d } from './clips';
@@ -48,7 +48,13 @@ export function createWorld(mobile = false): World {
     cast.striker.root.updateMatrixWorld(true);
     // Front (left) pad, just below the knee.
     const pad = cast.striker.legL.kn.localToWorld(tmp.set(0, -0.15, 0.1)).clone();
+    // Keeper's gloves as he takes a ball that beat the bat.
+    poseAt(s3, p, null, CLIP.contact + TO_KEEPER);
+    cast.keeper.root.updateMatrixWorld(true);
+    const gl = cast.keeper.armL.hand.getWorldPosition(new THREE.Vector3())
+      .add(cast.keeper.armR.hand.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5);
     return {
+      gloves: { x: gl.x, y: gl.y, z: gl.z },
       release: { x: release.x, y: release.y, z: release.z },
       contact: { x: contact.x, y: contact.y, z: contact.z },
       pad: { x: pad.x, y: pad.y, z: pad.z },

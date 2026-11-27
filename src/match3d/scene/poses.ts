@@ -20,6 +20,12 @@ export const P_CATCH: Pose = { hipLX: -0.45, hipRX: -0.45, kneeL: 0.6, kneeR: 0.
 /** New: celebration, one arm punched up. */
 export const P_CELEBRATE: Pose = { hipLX: -0.1, hipRX: 0.1, torsoX: -0.1, headX: -0.3,
   shRX: -2.9, shRZ: -0.2, elR: -0.1, shLX: -0.3, shLZ: 0.4, elL: -1.2 };
+/** New: bowler's hands on head after beating the bat. */
+export const P_DESPAIR: Pose = { hipLX: -0.1, hipRX: 0.1, torsoX: -0.15, headX: -0.2,
+  shLX: -2.5, shLZ: 0.5, elL: -2.1, shRX: -2.5, shRZ: -0.5, elR: -2.1 };
+/** New: forward defensive block, bat angled down in front of the pad. */
+export const P_BLOCK: Pose = { hipLZ: 0.5, hipLX: -0.35, kneeL: 0.6, hipRZ: -0.15, kneeR: 0.3, torsoX: 0.6, torsoZ: -0.2, torsoY: 0.15, headY: 1.0, headX: -0.5,
+  shLX: -0.7, shLZ: -0.05, elL: -0.25, shRX: -0.6, shRZ: 0.25, elR: -0.5 };
 /** New: fielder ready, crouched a little. */
 export const P_READY: Pose = { hipLX: -0.35, hipRX: -0.35, kneeL: 0.55, kneeR: 0.55, hipLZ: 0.15, hipRZ: -0.15, torsoX: 0.35, headX: -0.25,
   shLX: -0.4, shRX: -0.4, shLZ: 0.2, shRZ: -0.2, elL: -0.6, elR: -0.6 };

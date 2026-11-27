@@ -137,7 +137,12 @@ export interface FlightPoints {
   contact: Vec3;
   pad: Vec3;
   stumpsHit: Vec3;
+  /** Keeper's gloves when taking a ball that beat the bat (measured from the pose; defaults to KEEPER_GLOVES). */
+  gloves?: Vec3;
 }
+
+/** Time from reaching the batter to reaching the keeper's gloves. */
+export const TO_KEEPER = 0.28;
 
 /** Where the ball arrives at the batter's end, by plan. */
 export function arrivalPoint(p: DeliveryPlan, pts: FlightPoints): Vec3 {
@@ -185,11 +190,13 @@ export function flightOf(p: DeliveryPlan, pts: FlightPoints = { ...NOMINAL }): (
     const end = { x: A.x + 0.5, y: BALL_R, z: A.z + 0.4 };
     segs.push(ballistic(t, A, end, 0.3), rest(t + 0.3, end));
   } else if (p.survive === 'edgePad') {
-    const end = { x: A.x + 0.3, y: BALL_R, z: A.z + 0.5 };
-    segs.push(ballistic(t, A, end, 0.35), rest(t + 0.35, end));
+    // Inside edge onto the front pad, then it drops at the batter's feet.
+    const end = { x: pts.pad.x + 0.25, y: BALL_R, z: pts.pad.z + 0.45 };
+    segs.push(ballistic(t, A, pts.pad, 0.1), ballistic(t + 0.1, pts.pad, end, 0.3), rest(t + 0.4, end));
   } else {
     // Beaten or left alone: on to the keeper's gloves.
-    segs.push(ballistic(t, A, KEEPER_GLOVES, 0.28), rest(t + 0.28, KEEPER_GLOVES));
+    const g = pts.gloves ?? KEEPER_GLOVES;
+    segs.push(ballistic(t, A, g, TO_KEEPER), rest(t + TO_KEEPER, g));
   }
   return path(segs);
 }

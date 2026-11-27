@@ -5,7 +5,7 @@ import { CLIP, RESULT } from '../timing';
 import { keyedQ, qToe, setBat } from './bat';
 import type { Cast } from './cast';
 import {
-  P_APPEAL, P_BACKLIFT, P_CATCH, P_CELEBRATE, P_CONTACT, P_DEJECTED, P_DRIVE, P_FLICK, P_FOLLOW, P_GATHER, P_KEEPER, P_KEEP_UP,
+  P_APPEAL, P_BACKLIFT, P_BLOCK, P_CATCH, P_CELEBRATE, P_CONTACT, P_DEJECTED, P_DESPAIR, P_DRIVE, P_FLICK, P_FOLLOW, P_GATHER, P_KEEPER, P_KEEP_UP,
   P_LEAVE, P_LOAD, P_NS, P_PICKUP, P_READY, P_REACH, P_RELEASE, P_STANCE, P_STAND_BAT, P_STRIDE, P_UMPIRE, P_UMPIRE_OUT,
 } from './poses';
 import { angDiff, applyPose, clamp01, keyed, lerpPose, runPose, smooth, STRIDE, type Player, type Pose } from './rig';
@@ -67,6 +67,8 @@ function bowlerAt(P: Player, plan: DeliveryPlan | null, t: number) {
     } else if (plan.kind === 'lbw' || plan.kind === 'bowled' || plan.kind === 'caught') {
       const appeal = plan.kind === 'lbw' ? P_APPEAL : P_CELEBRATE;
       pose = lerpPose(pose, appeal, smooth(clamp01((after - 0.15) / 0.35)));
+    } else if (plan.survive === 'beaten' || plan.survive === 'edgePad') {
+      pose = lerpPose(pose, P_DESPAIR, smooth(clamp01((after - 0.2) / 0.35)));
     }
   }
   P.root.position.set(x, 0, z);
@@ -89,6 +91,7 @@ const Q_CONTACT = qToe(-0.1, -0.95, 0.25);
 const Q_FLICK = qToe(0.55, 0.5, 0.67);
 const Q_DRIVE = qToe(0.35, 0.85, -0.35);
 const Q_LEAVE = qToe(0.3, 0.9, -0.2);
+const Q_BLOCK = qToe(-0.25, -0.9, 0.35);
 
 /** The striker's swing for this plan: [pose keys, bat keys]. */
 function swing(plan: DeliveryPlan | null): [[number, Pose][], [number, THREE.Quaternion][]] {
@@ -106,6 +109,15 @@ function swing(plan: DeliveryPlan | null): [[number, Pose][], [number, THREE.Qua
     return [
       [[0, P_STANCE], [C - 0.85, P_STANCE], [C - 0.3 + late, P_BACKLIFT], [C - 0.12 + late, P_STRIDE], [C + late, P_CONTACT], [C + 0.27 + late, P_DRIVE], [C + 0.6, P_DRIVE]],
       [[0, Q_STANCE], [C - 0.85, Q_STANCE], [C - 0.3 + late, Q_BACKLIFT], [C - 0.12 + late, Q_STRIDE], [C + late, Q_CONTACT], [C + 0.27 + late, Q_DRIVE], [C + 0.6, Q_DRIVE]],
+    ];
+  }
+  if (plan?.survive === 'beaten' || plan?.survive === 'edgePad') {
+    // Forward push (play and miss) or a defensive block (inside edge onto the pad): short, no follow-through.
+    const end = plan.survive === 'edgePad' ? P_BLOCK : P_CONTACT;
+    const qEnd = plan.survive === 'edgePad' ? Q_BLOCK : Q_CONTACT;
+    return [
+      [[0, P_STANCE], [C - 0.85, P_STANCE], [C - 0.3, P_BACKLIFT], [C - 0.12, P_STRIDE], [C, end], [C + 0.6, end]],
+      [[0, Q_STANCE], [C - 0.85, Q_STANCE], [C - 0.3, Q_BACKLIFT], [C - 0.12, Q_STRIDE], [C, qEnd], [C + 0.6, qEnd]],
     ];
   }
   if (plan?.survive === 'leave') {

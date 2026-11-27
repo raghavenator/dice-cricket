@@ -86,6 +86,30 @@ describe('3D world', () => {
     expect(world.camera.position.distanceTo(world.cast.umpire.root.position)).toBeLessThan(6);
   });
 
+  it('plays each dot-ball variant: beaten and left into the keeper\'s gloves, inside edge onto the pad', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed < 40 && seen.size < 3; seed++) {
+      const p = planDelivery(out('survive'), seed);
+      if (seen.has(p.survive!)) continue;
+      seen.add(p.survive!);
+      world.setDelivery(p, DEFAULT_KITS, {});
+      if (p.survive === 'edgePad') {
+        world.update(CLIP.contact + 0.1, 1.6);
+        const knee = world.cast.striker.legL.kn.getWorldPosition(new THREE.Vector3());
+        expect(world.cast.ball.position.distanceTo(knee)).toBeLessThan(0.4);
+        world.update(CLIP.contact + 1, 1.6);
+        expect(world.cast.ball.position.y).toBeCloseTo(0.05, 3);
+      } else {
+        world.update(CLIP.contact, 1.6);
+        world.update(RESULT.survive, 1.6);
+        const k = world.cast.keeper;
+        const hands = k.armL.hand.getWorldPosition(new THREE.Vector3()).add(k.armR.hand.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.5);
+        expect(hands.distanceTo(world.cast.ball.position)).toBeLessThan(0.1);
+      }
+    }
+    expect(seen.size).toBe(3);
+  });
+
   it('raises the umpire\'s finger for lbw', () => {
     world.setDelivery(planDelivery(out('lbw'), 8), DEFAULT_KITS, {});
     world.update(RESULT.lbw + 0.2, 1.6);
