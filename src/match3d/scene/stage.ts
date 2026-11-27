@@ -19,7 +19,7 @@ export interface Stage {
 /** Ground, pitch, creases, stumps, boundary rope and lights. */
 export function buildStage(kit: Kit, scene: THREE.Scene, mobile: boolean): Stage {
   scene.background = new THREE.Color(SKY);
-  scene.fog = new THREE.Fog(SKY, 75, 170);
+  scene.fog = new THREE.Fog(SKY, 90, 230);
 
   scene.add(new THREE.HemisphereLight(0xe6f0ff, 0x5d7a35, 1.1));
   const sun = new THREE.DirectionalLight(0xfff2dc, 2.4);
@@ -42,8 +42,8 @@ export function buildStage(kit: Kit, scene: THREE.Scene, mobile: boolean): Stage
       g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,210,0.06)' : 'rgba(20,45,0,0.08)';
       g.fillRect(rnd() * w, rnd() * h, 1 + rnd(), 1 + rnd() * 3);
     }
-  }, [18, 18]);
-  const ground = addMesh(scene, kit.own(new THREE.PlaneGeometry(180, 180)),
+  }, [40, 40]);
+  const ground = addMesh(scene, kit.own(new THREE.PlaneGeometry(400, 400)),
     kit.own(new THREE.MeshStandardMaterial({ map: grass, color: grass ? 0xffffff : 0x789c46, roughness: 1 })),
     [0, 0, 0], [1, 1, 1], [-Math.PI / 2, 0, 0], false);
   ground.receiveShadow = true;
@@ -98,6 +98,23 @@ export function buildStage(kit: Kit, scene: THREE.Scene, mobile: boolean): Stage
   rope.rotation.x = -Math.PI / 2;
   rope.position.y = 0.1;
   scene.add(rope);
+
+  // Boundary boards a few metres beyond the rope: one open cylinder, alternating panels.
+  const boardsTex = canvasTexture(kit, 512, 32, (g, w, h) => {
+    const cols = ['#1f4fa8', '#f2f2f2', '#c0392b', '#f2c230'];
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = cols[i % cols.length];
+      g.fillRect((i * w) / 8, 0, w / 8, h);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.18)';
+    g.fillRect(0, h - 4, w, 4);
+  }, [12, 1]);
+  const boards = new THREE.Mesh(
+    kit.own(new THREE.CylinderGeometry(BOUNDARY_R + 4, BOUNDARY_R + 4, 1.1, 96, 1, true)),
+    kit.own(new THREE.MeshStandardMaterial({ map: boardsTex, color: boardsTex ? 0xffffff : 0x2a5fb0, roughness: 0.7, side: THREE.DoubleSide })),
+  );
+  boards.position.y = 0.55;
+  scene.add(boards);
 
   return { sun, wicket };
 }

@@ -3,7 +3,7 @@ import { FIELD_POSITIONS, STUMPS_Z, fieldSpot, type Vec3 } from '../field';
 import type { Kits } from '../kits';
 import { flightOf, type DeliveryPlan, type FlightPoints } from '../plan';
 import { CLIP } from '../timing';
-import { buildCast, dressCast, type Cast, type Numbers } from './cast';
+import { BALL_DRAW_R, buildCast, dressCast, type Cast, type Numbers } from './cast';
 import { poseAt, sweetSpot, type Scene3d } from './clips';
 import { aimCamera } from './director';
 import { Kit } from './kit';
@@ -74,6 +74,10 @@ export function createWorld(mobile = false): World {
     update(t, aspect) {
       poseAt(s3, plan, flight, t);
       aimCamera(camera, plan, flight, t, aspect);
+      // Keep the ball (and its trail) visible far away: grow it with distance from the camera.
+      const grow = (m: THREE.Object3D, base: number) => m.scale.setScalar(base * Math.max(1, m.position.distanceTo(camera.position) / 22));
+      grow(cast.ball, BALL_DRAW_R);
+      cast.trail.forEach((g, i) => grow(g, BALL_DRAW_R * (1 - (i + 1) * 0.08)));
     },
     dispose() {
       kit.dispose();

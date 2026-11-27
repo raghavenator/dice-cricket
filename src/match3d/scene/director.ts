@@ -43,14 +43,19 @@ export function aimCamera(cam: THREE.PerspectiveCamera, plan: DeliveryPlan | nul
         break;
       }
       case 'follow': {
-        target.lerp(lagged, k);
-        pos.lerp(new THREE.Vector3(lagged.x * 0.45, 22, lagged.z * 0.45 + 30), k * 0.85);
+        // Rise up behind the striker, looking down the line of the shot: ball, chaser and rope in frame.
+        const d = plan.hit ? dirOf(plan.hit.theta) : { x: 0, z: 1 };
+        const behind = new THREE.Vector3(HIT_ORIGIN.x - d.x * 16, 15, HIT_ORIGIN.z - d.z * 16);
+        pos.lerp(behind, k);
+        target.lerp(lagged.setY(Math.min(lagged.y, 2)), k);
         break;
       }
       case 'wide': {
+        // Cut to a high wide shot that tracks the ball over the rope.
         if (t > C + 0.2) {
           const d = plan.hit ? dirOf(plan.hit.theta) : { x: 0, z: 1 };
-          pos.set(HIT_ORIGIN.x - d.x * 26, 34, HIT_ORIGIN.z - d.z * 26);
+          const side = { x: d.z, z: -d.x };
+          pos.set(HIT_ORIGIN.x - d.x * 22 + side.x * 10, 30, HIT_ORIGIN.z - d.z * 22 + side.z * 10);
           target.copy(lagged);
         }
         break;

@@ -32,7 +32,8 @@ export interface Cast {
   trail: THREE.Mesh[];
 }
 
-const BALL_DRAW_R = 0.05; // drawn larger than a real ball so it shows from the broadcast camera
+/** Drawn larger than a real ball so it shows from the broadcast camera (and grown further with distance). */
+export const BALL_DRAW_R = 0.05;
 
 /** Shared kit materials: recolour these to change a side's shirts everywhere. */
 function sideMats(kit: Kit) {

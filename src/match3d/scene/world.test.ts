@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { afterAll, describe, expect, it } from 'vitest';
-import { FIELD_POSITIONS, fieldSpot, STUMPS_Z } from '../field';
+import { BOUNDARY_R, FIELD_POSITIONS, fieldSpot, STUMPS_Z } from '../field';
 import { DEFAULT_KITS } from '../kits';
 import type { ClipKind, Outcome } from '../outcome';
 import { planDelivery } from '../plan';
@@ -49,6 +49,25 @@ describe('3D world', () => {
     world.update(CLIP.contact, 1.6);
     const pad = world.cast.striker.legL.kn.getWorldPosition(new THREE.Vector3());
     expect(world.cast.ball.position.distanceTo(pad)).toBeLessThan(0.4);
+  });
+
+  it('draws a far-away ball bigger so it stays visible', () => {
+    world.setDelivery(planDelivery(out('six'), 21), DEFAULT_KITS, {});
+    world.update(CLIP.release + 0.05, 1.6);
+    const near = world.cast.ball.scale.x;
+    world.update(CLIP.contact + 2.0, 1.6);
+    expect(world.cast.ball.scale.x).toBeGreaterThan(near);
+  });
+
+  it('never lets the chasing fielder reach a four before it crosses the rope', () => {
+    for (const seed of [2, 5, 8, 13, 21, 34, 55, 89]) {
+      const p = planDelivery(out('four'), seed);
+      world.setDelivery(p, DEFAULT_KITS, {});
+      let t = CLIP.contact;
+      while (Math.hypot(world.flight!(t).x, world.flight!(t).z) < BOUNDARY_R && t < 8) t += 0.01;
+      world.update(t, 1.6);
+      expect(world.cast.fielder.root.position.distanceTo(world.cast.ball.position)).toBeGreaterThan(1);
+    }
   });
 
   it('raises the umpire\'s finger for lbw', () => {
