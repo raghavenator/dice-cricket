@@ -13,6 +13,7 @@ import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { MatchStage, usePrefersReducedMotion } from '../components/MatchStage';
 import { GameplayPager, useMedia, type PagerSection } from '../components/GameplayPager';
 import { useDeliveryTimeline } from '../components/useDeliveryTimeline';
+import { offlineFinal } from '../components/stageFinal';
 import { deliveryFor, waitingFor } from '../match3d/fromMatch';
 import type { Kits } from '../match3d/kits';
 import type { Speed } from '../match3d/timing';
@@ -70,6 +71,17 @@ export function MatchScreen() {
   const tl = useDeliveryTimeline();
   const [diceMs, setDiceMs] = useState({ d1: 0, d2: 0 });
   const [stageKits, setStageKits] = useState<Kits | null>(null);
+  // Once the last ball's clip has had its moment, put the result over the field.
+  const ended = !!m?.result && phase === 'idle';
+  const [showFinal, setShowFinal] = useState(false);
+  useEffect(() => {
+    if (!ended) {
+      setShowFinal(false);
+      return;
+    }
+    const t = window.setTimeout(() => setShowFinal(true), 1200);
+    return () => window.clearTimeout(t);
+  }, [ended]);
 
   const [flash, setFlash] = useState<{ id: number; kind: FlashKind; sub: string } | null>(null);
 
@@ -259,6 +271,7 @@ export function MatchScreen() {
 
   const bowlRow = inn.bowlerId ? bowlingCard(m, curIdx).find((r) => r.playerId === inn.bowlerId) : undefined;
   const waiting = waitingFor(m);
+  const final = showFinal ? offlineFinal(m) : null;
 
   const leave = () => go(live.tournamentId ? { name: 'tourHub', id: live.tournamentId } : { name: 'home' });
   const rollLabel = busy ? 'Rolling…' : pickNeeded ? 'Choose a bowler' : '🎲 Roll';
@@ -374,7 +387,14 @@ export function MatchScreen() {
         kits={(tl.delivery && stageKits) || waiting.kits}
         idleNumbers={waiting.numbers}
         onSkip={skipBall}
-      />
+      >
+        {final && (
+          <div className={`stage-final stage-final-${final.tone}`} role="status">
+            <span className="stage-final-title stage-final-long">{final.title}</span>
+            {final.margin && <span className="stage-final-margin">{final.margin}</span>}
+          </div>
+        )}
+      </MatchStage>
       <div className="play-top">
         <div className="play-top-main">
           {scoreboard}

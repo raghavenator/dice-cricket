@@ -782,3 +782,5 @@ table.sc { width: 100%; border-collapse: collapse; font-variant-numeric: tabular
 }
 @media (min-width: 900px) { .play .stage-final { padding-right: 356px; } }
 .stage:has(.stage-final) .stage-label-wrap { display: none; }
+/* Offline: the title is a team name, so a little smaller. */
+.stage-final-long { font-size: clamp(2rem, 9vw, 4.6rem); max-width: 90%; }
