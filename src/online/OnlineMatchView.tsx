@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { MatchCharts } from '../components/Charts';
+import { BotMark } from './BotMark';
 import { BattingCard, BowlingCard, InningsTabs } from '../components/Scorecard';
 import { ScorecardOrderToggle } from '../components/ScorecardOrder';
 import { goBack } from './nav';
@@ -30,7 +31,7 @@ export function OnlineMatchView({ matchId }: { matchId: string }) {
         <>
           <h2>{m.teams[0].name} v {m.teams[1].name}</h2>
           <p className="muted small">
-            {rec.host.nickname} v {rec.guest.nickname} · {new Date(rec.completedAt).toLocaleString()} · {m.tossText}
+            {rec.host.nickname}<BotMark ownerId={rec.host.ownerId} /> v {rec.guest.nickname}<BotMark ownerId={rec.guest.ownerId} /> · {new Date(rec.completedAt).toLocaleString()} · {m.tossText}
           </p>
           <div className="result-banner"><div className="result-title">🏆 {m.result?.text}</div></div>
           <InningsTabs m={m} value={idx} onChange={setIdx} />

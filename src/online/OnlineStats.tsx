@@ -4,6 +4,7 @@ import { inningsTitle, scoreText } from '../components/Scorecard';
 import { aggregate } from '../engine/stats';
 import { OnlineBackupPanel } from './OnlineBackupPanel';
 import { BAT_COLS, BOWL_COLS, SortTable, type Col } from './SortTable';
+import { BotMark } from './BotMark';
 import { goHome, goMatch, goPlayer } from './nav';
 import type { OnlineRecord } from './onlineDb';
 import {
@@ -175,7 +176,7 @@ function OverviewTab({ matches }: { matches: StatMatch[] }) {
 }
 
 const H2H_COLS: Col<HeadToHead>[] = [
-  { key: 'name', label: 'Opponent', value: (r) => r.opponent.nickname, left: true, render: (r) => <b>{r.opponent.nickname}</b> },
+  { key: 'name', label: 'Opponent', value: (r) => r.opponent.nickname, left: true, render: (r) => <b>{r.opponent.nickname}<BotMark ownerId={r.opponent.ownerId} /></b> },
   { key: 'p', label: 'Played', value: (r) => r.played },
   { key: 'w', label: 'Won', value: (r) => r.won },
   { key: 'l', label: 'Lost', value: (r) => r.lost },
@@ -198,10 +199,11 @@ function HeadToHeadTab({ matches }: { matches: StatMatch[] }) {
 
 function MatchesTab({ matches, records, others }: { matches: StatMatch[]; records: OnlineRecord[]; others: OnlineRecord[] }) {
   const byId = new Map(records.map((r) => [r.id, r]));
-  const row = (r: OnlineRecord, note: string, chip?: string) => (
+  const row = (r: OnlineRecord, note: string, chip?: string, botId?: string) => (
     <button key={r.id} className="list-main match-row" onClick={() => goMatch(r.id)}>
       <span className="muted small">
-        {new Date(r.completedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · {note} · {r.match.settings.overs} over{r.match.settings.overs === 1 ? '' : 's'}
+        {new Date(r.completedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · {note}
+        {botId && <BotMark ownerId={botId} />} · {r.match.settings.overs} over{r.match.settings.overs === 1 ? '' : 's'}
         {r.end.kind === 'forfeit' && ' · forfeit'}
       </span>
       <span>{r.match.innings.map((_, i) => `${inningsTitle(r.match, i)} ${scoreText(r.match, i)}`).join('  ·  ')}</span>
@@ -213,7 +215,7 @@ function MatchesTab({ matches, records, others }: { matches: StatMatch[]; record
   );
   return (
     <div className="list">
-      {[...matches].reverse().map((m) => row(byId.get(m.id)!, `v ${m.opponent.nickname}`, m.outcome))}
+      {[...matches].reverse().map((m) => row(byId.get(m.id)!, `v ${m.opponent.nickname}`, m.outcome, m.opponent.ownerId))}
       {others.length > 0 && (
         <>
           <p className="muted small on-others">Matches you played against yourself from two browsers. They are not counted in any stats.</p>

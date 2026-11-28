@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { TeamCard } from '../components/SettingsForm';
 import { PRESET_TEAMS } from '../data/presets';
 import { AutoToggles } from './AutoToggles';
+import { BotMark } from './BotMark';
 import { LineupEditor } from './LineupEditor';
 import { OnlineMatch } from './OnlineMatch';
 import { getGuest } from './guest';
@@ -431,7 +432,7 @@ function Toss({ view }: { view: RoomView }) {
             </div>
           </>
         ) : (
-          <p>{opponent.nickname} is calling…</p>
+          <p>{opponent.nickname}<BotMark ownerId={opponent.ownerId} /> is calling…</p>
         )
       ) : (
         <>
@@ -445,7 +446,7 @@ function Toss({ view }: { view: RoomView }) {
               </div>
             </>
           ) : (
-            <p>{opponent.nickname} won the toss and is deciding…</p>
+            <p>{opponent.nickname}<BotMark ownerId={opponent.ownerId} /> won the toss and is deciding…</p>
           )}
         </>
       )}

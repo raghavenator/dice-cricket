@@ -3,9 +3,10 @@ import { bowlerOptions, currentInnings, getTeam } from '../engine/match';
 import { battingCard } from '../engine/stats';
 import type { MatchState, Rng, Team } from '../engine/types';
 import { applyEvent, digest } from './events';
-import { autoPlan, defaultLineup } from './lineup';
-import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, normalizeCode, parseClientMessage, type Access, type RoomAction, type SeatId } from './protocol';
+import { autoPlan, defaultLineup, lineupProblem } from './lineup';
+import { MAX_MESSAGE_BYTES, PROTOCOL_VERSION, isBot, normalizeCode, parseClientMessage, type Access, type RoomAction, type SeatId } from './protocol';
 import {
+  BOT_NAMES, BOT_THINK_MS, BOT_WAIT_MS,
   BALL_GAP_MS, CHECK_GAP_MS, CLAIM_MS, IDLE_MS, INNINGS_GAP_MS, KEEP_FINISHED_MS, PICK_MS, QUICK_SETUP_MS, RESUME_MS, ROLL_MS, TOSS_MS,
   act, connect, createRoom, currentTurn, deletesAt, disconnect, finishedMatch, nextWake, tick, viewFor,
   type RoomState, type Step,
@@ -998,6 +999,110 @@ describe('quick match', () => {
     s.act('host', { t: 'rematch' });
     s.act('guest', { t: 'rematch' });
     expect(s.state).toMatchObject({ phase: 'setup', deadline: s.now + QUICK_SETUP_MS });
+  });
+});
+
+describe('computer opponent', () => {
+  /** A quick match with only the searcher, who has chosen a team. */
+  const alone = (seed = 1) => {
+    const s = new Sim(seed, 'quick');
+    s.connect('host');
+    s.act('host', { t: 'setTeam', team: hawks });
+    return s;
+  };
+  const withBot = (seed = 1) => {
+    const s = alone(seed);
+    s.wait(BOT_WAIT_MS);
+    expect(isBot(s.state.guest!.ownerId)).toBe(true);
+    return s;
+  };
+
+  it('is told apart from people by its id alone', () => {
+    expect(isBot('bot_' + 'a'.repeat(16))).toBe(true);
+    // A person's id is 16 characters, even one that happens to start the same way.
+    expect(isBot('bot_' + 'a'.repeat(12))).toBe(false);
+    expect(isBot('HHH')).toBe(false);
+  });
+
+  it('joins a quick match after a minute of searching, ready to play', () => {
+    const s = alone();
+    expect(nextWake(s.state)).toBe(s.state.phaseAt + BOT_WAIT_MS);
+    s.wait(BOT_WAIT_MS - 1);
+    expect(s.state).toMatchObject({ phase: 'waiting', guest: null });
+    s.wait(1);
+    const bot = s.state.guest!;
+    expect(s.state.phase).toBe('setup');
+    expect(bot).toMatchObject({ connected: true, ready: true, auto: { roll: true, batter: true, bowler: true } });
+    expect(BOT_NAMES).toContain(bot.nickname);
+    expect(bot.team!.id).not.toBe(hawks.id);
+    expect(PRESET_TEAMS.map((t) => t.id)).toContain(bot.team!.id);
+    expect(lineupProblem(bot.team!, bot.lineup!, 5)).toBeNull();
+    // Its batting order is shuffled a little, not left as it is or scrambled.
+    const order = defaultLineup(bot.team!).battingOrder;
+    const moved = bot.lineup!.battingOrder.filter((id, i) => id !== order[i]).length;
+    expect(moved).toBeGreaterThanOrEqual(2);
+    expect(moved).toBeLessThanOrEqual(4);
+  });
+
+  it('is never added to private or open rooms, or while the searcher is away', () => {
+    for (const access of ['private', 'open'] as const) {
+      const s = new Sim(1, access);
+      s.connect('host');
+      expect(nextWake(s.state)).toBe(s.state.phaseAt + IDLE_MS);
+      s.wait(2 * BOT_WAIT_MS);
+      expect(s.state.guest).toBeNull();
+    }
+    const s = alone();
+    s.disconnect('host');
+    s.wait(2 * BOT_WAIT_MS);
+    expect(s.state.guest).toBeNull();
+  });
+
+  it('leaves a real opponent who arrives first alone', () => {
+    const s = alone();
+    s.wait(BOT_WAIT_MS - 1);
+    s.connect('guest');
+    s.wait(BOT_WAIT_MS);
+    expect(s.state.guest!.ownerId).toBe(IDS.guest);
+  });
+
+  it('takes a moment over the toss', () => {
+    const s = withBot();
+    s.act('host', { t: 'ready' });
+    expect(s.state.phase).toBe('toss');
+    expect(currentTurn(s.state)).toEqual({ seat: 'guest', kind: 'tossCall' });
+    expect(s.state.deadline).toBe(s.now + BOT_THINK_MS);
+    s.wait(BOT_THINK_MS);
+    expect(s.state.toss!.winner).toBeDefined();
+  });
+
+  it('plays whole matches, and always agrees to a rematch', () => {
+    for (let seed = 1; seed <= 10; seed++) {
+      const s = withBot(seed);
+      s.act('host', { t: 'ready' });
+      let guard = 0;
+      while (s.state.phase !== 'finished' && guard++ < 500) {
+        s.now = nextWake(s.state)!;
+        s.tick();
+      }
+      const done = finishedMatch(s.state)!;
+      expect(done.end).toEqual({ kind: 'played' });
+      expect(isBot(done.guest.ownerId)).toBe(true);
+      s.act('host', { t: 'rematch' });
+      expect(s.state).toMatchObject({ phase: 'setup', guest: { ready: true } });
+      s.act('host', { t: 'ready' });
+      expect(s.state.phase).toBe('toss');
+    }
+  });
+
+  it('does not keep a room open once the person has gone', () => {
+    const s = withBot();
+    s.act('host', { t: 'ready' });
+    s.wait(BOT_THINK_MS);
+    s.disconnect('host');
+    expect(s.state.deadline).toBeNull();
+    s.wait(IDLE_MS);
+    expect(s.state.phase).toBe('closed');
   });
 });
 

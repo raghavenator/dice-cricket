@@ -84,6 +84,14 @@ export interface Who {
   nickname: string;
 }
 
+/**
+ * A computer opponent's public id: "bot_" and 16 more characters. A person's id is always 16 characters, so the two
+ * can never be mixed up, and saved matches, backups and stats need no extra field to tell them apart.
+ */
+export const BOT_PREFIX = 'bot_';
+export const BOT_ID_LENGTH = 20;
+export const isBot = (ownerId: string): boolean => ownerId.length === BOT_ID_LENGTH && ownerId.startsWith(BOT_PREFIX);
+
 /** A finished match, as the server keeps it for collection and each browser records it. */
 export interface FinishedMatch {
   match: MatchState;

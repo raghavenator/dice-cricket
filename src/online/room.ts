@@ -4,7 +4,7 @@ import { BALLS_PER_OVER, bowlerOptions, currentInnings, needsBowler, pickAutoBow
 import type { MatchState, Rng, Team } from '../engine/types';
 import { applyEvent, digest, type Auto, type MatchEvent } from './events';
 import { applyLineup, defaultLineup, lineupProblem, onlineSettings, type Lineup } from './lineup';
-import type { Access, AutoSettings, Clock, FinishedMatch, MatchEnd, Phase, RoomAction, RoomView, SeatId, SeatView, TossState, Turn, Who } from './protocol';
+import { BOT_ID_LENGTH, BOT_PREFIX, isBot, type Access, type AutoSettings, type Clock, type FinishedMatch, type MatchEnd, type Phase, type RoomAction, type RoomView, type SeatId, type SeatView, type TossState, type Turn, type Who } from './protocol';
 import { createOnlineMatch, nextBatterOptions, ownedId, splitOwnedId } from './rules';
 import { DEFAULT_OVERS, OnlineError } from './validate';
 
@@ -31,6 +31,15 @@ export const RESUME_MS = 5 * SEC;
 /** Strangers in a quick match have this long to set up. Then it starts with whatever they have. */
 export const QUICK_SETUP_MS = 60 * SEC;
 export const CLAIM_MS = 90 * SEC;
+/** Someone searching for a quick match this long gets a computer opponent instead. */
+export const BOT_WAIT_MS = 60 * SEC;
+/** How long a computer opponent takes over the toss, so it does not look instant. */
+export const BOT_THINK_MS = 1500;
+/** Names for computer opponents. All are valid nicknames. */
+export const BOT_NAMES = [
+  'Ravi', 'Sam K', 'Jono', 'Imran', 'Kiwi Pete', 'Ash', 'Tom B', 'Raza', 'Benji', 'Matty', 'Shaz', 'Fitzy',
+  'Sunny', 'Dev', 'Ollie', 'Kofi', 'Haris', 'Nathan', 'Zane', 'Vik',
+];
 /** Rooms with nobody to play close after this. */
 export const IDLE_MS = 30 * MIN;
 /** Finished matches stay this long, so a player who lost connection can collect the result. */
@@ -206,9 +215,9 @@ export function finishedMatch(s: RoomState): FinishedMatch | null {
   return { match: s.match, host: who(s.host), guest: who(s.guest), end: s.end, completedAt: s.phaseAt };
 }
 
-/** When everyone last left, or null if someone is here. */
+/** When every person last left, or null if someone is here. A computer opponent does not count. */
 function emptySince(s: RoomState): number | null {
-  const seats = s.guest ? [s.host, s.guest] : [s.host];
+  const seats = (s.guest ? [s.host, s.guest] : [s.host]).filter((x) => !isBot(x.ownerId));
   if (seats.some((x) => x.connected)) return null;
   return Math.max(...seats.map((x) => x.awaySince ?? s.phaseAt));
 }
@@ -229,9 +238,14 @@ export function deletesAt(s: RoomState): number | null {
   return s.phase === 'finished' ? s.phaseAt + KEEP_FINISHED_MS : null;
 }
 
+/** When a computer opponent joins a quick match nobody else has, or null. Only while the searcher is here. */
+export function botJoinsAt(s: RoomState): number | null {
+  return s.access === 'quick' && s.phase === 'waiting' && s.host.connected ? s.phaseAt + BOT_WAIT_MS : null;
+}
+
 /** The next time `tick` (or deletion) is due. */
 export function nextWake(s: RoomState): number | null {
-  const times = [s.deadline, closesAt(s), deletesAt(s)].filter((t): t is number => t !== null);
+  const times = [s.deadline, closesAt(s), deletesAt(s), botJoinsAt(s)].filter((t): t is number => t !== null);
   return times.length ? Math.min(...times) : null;
 }
 
@@ -256,6 +270,8 @@ function isAuto(s: RoomState, turn: Turn): boolean {
 
 function turnMs(s: RoomState, turn: Turn): number {
   if (isAuto(s, turn)) return 0;
+  // A computer opponent plays everything else on auto, and only pauses briefly over the toss.
+  if (isBot(s[turn.seat]!.ownerId)) return BOT_THINK_MS;
   if (turn.kind === 'roll') return ROLL_MS;
   return turn.kind === 'batter' || turn.kind === 'bowler' ? PICK_MS : TOSS_MS;
 }
@@ -390,6 +406,37 @@ function startQuick(s: RoomState, { now, rng }: Ctx) {
     seat.ready = true;
   }
   beginToss(s, now);
+}
+
+const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const pickOne = <T,>(xs: readonly T[], rng: Rng): T => xs[Math.min(xs.length - 1, Math.floor(rng() * xs.length))];
+
+/** A random sample team other than the host's, with its batting order shuffled a little: one or two neighbours swapped. */
+export function botTeam(hostTeamId: string | null, rng: Rng): { team: Team; lineup: Lineup } {
+  const team = structuredClone(pickOne(PRESET_TEAMS.filter((t) => t.id !== hostTeamId), rng));
+  const lineup = defaultLineup(team);
+  const order = lineup.battingOrder;
+  const swaps = 1 + Math.floor(rng() * 2);
+  let last = -1;
+  for (let i = 0; i < swaps; i++) {
+    // Never the same pair twice, which would put it back.
+    const pairs = order.length - 1;
+    let at = Math.floor(rng() * (last < 0 ? pairs : pairs - 1));
+    if (last >= 0 && at >= last) at++;
+    [order[at], order[at + 1]] = [order[at + 1], order[at]];
+    last = at;
+  }
+  return { team, lineup };
+}
+
+/** Nobody has come for the searcher: a computer opponent takes the guest seat, ready to play, with everything on auto. */
+function addBot(s: RoomState, { now, rng }: Ctx) {
+  let ownerId = BOT_PREFIX;
+  while (ownerId.length < BOT_ID_LENGTH) ownerId += pickOne([...ID_CHARS], rng);
+  const names = BOT_NAMES.filter((n) => n.toLowerCase() !== s.host.nickname.trim().toLowerCase());
+  const { team, lineup } = botTeam(s.host.team?.id ?? null, rng);
+  s.guest = { ...newSeat({ ownerId, nickname: pickOne(names, rng) }), connected: true, team, lineup, ready: true };
+  beginSetup(s, now);
 }
 
 function dropGuest(s: RoomState, now: number) {
@@ -605,10 +652,11 @@ export function act(s0: RoomState, ownerId: string, a: RoomAction, ctx: Ctx): St
       const other = s[otherSeat(id)]!;
       if (other.left) throw new OnlineError('Your opponent has left');
       me.wantsRematch = true;
-      if (!other.wantsRematch) return done('room');
+      // A computer opponent always says yes.
+      if (!other.wantsRematch && !isBot(other.ownerId)) return done('room');
       for (const seat of [s.host, s.guest!]) {
         seat.wantsRematch = false;
-        seat.ready = false;
+        seat.ready = isBot(seat.ownerId);
       }
       s.toss = null;
       s.match = null;
@@ -643,6 +691,12 @@ export function tick(s0: RoomState, ctx: Ctx): Step {
     const s = structuredClone(s0);
     close(s, now);
     return { state: s, events: [], send: 'snapshot' };
+  }
+  const bot = botJoinsAt(s0);
+  if (bot !== null && bot <= now) {
+    const s = structuredClone(s0);
+    addBot(s, ctx);
+    return { state: s, events: [], send: 'room' };
   }
   if (s0.deadline === null || s0.deadline > now) return { state: s0, events: [], send: 'none' };
 

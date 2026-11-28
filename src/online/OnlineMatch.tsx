@@ -11,7 +11,8 @@ import { Presence } from './OnlineRoom';
 import { AutoToggles } from './AutoToggles';
 import type { Auto, MatchEvent } from './events';
 import { goHome } from './nav';
-import type { RoomView } from './protocol';
+import { isBot, type RoomView } from './protocol';
+import { BotMark } from './BotMark';
 import { PICK_MS, ROLL_MS, suggestBowler } from './room';
 import { nextBatterOptions } from './rules';
 import { Countdown, secondsLeft, useServerNow } from './time';
@@ -318,7 +319,11 @@ export function OnlineMatch() {
           {scoreboard}
           <div className="on-players small">
             <span><Presence seat={me} /> {me.nickname} (you)</span>
-            <span><Presence seat={opponent} /> {opponent.nickname}{opponent.auto.roll ? ' · auto roll on' : ''}</span>
+            <span>
+              <Presence seat={opponent} /> {opponent.nickname}
+              <BotMark ownerId={opponent.ownerId} />
+              {opponent.auto.roll && !isBot(opponent.ownerId) ? ' · auto roll on' : ''}
+            </span>
           </div>
           {!live && <button className="btn btn-sm play-home" onClick={leave}>← Online home</button>}
         </div>

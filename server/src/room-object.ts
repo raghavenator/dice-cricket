@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { HEARTBEAT_MS, type Listing } from '../../src/online/lobby';
-import { parseClientMessage, type Access, type FinishedMatch, type RoomResults, type ServerMessage, type Who } from '../../src/online/protocol';
+import { isBot, parseClientMessage, type Access, type FinishedMatch, type RoomResults, type ServerMessage, type Who } from '../../src/online/protocol';
 import {
   KEEP_FINISHED_MS, STATE_VERSION, act, clockFor, connect, createRoom, deletesAt, disconnect, finishedMatch, isLive,
   nextWake, seatOf, tick, viewFor, type Ctx, type RoomState, type Step,
@@ -62,9 +62,9 @@ export class Room extends DurableObject<Env> {
       const kept = [...(await ctx.storage.list<FinishedMatch>({ prefix: RESULT_PREFIX })).values()];
       kept.sort((a, b) => a.completedAt - b.completedAt);
       for (const r of kept) this.results.set(r.match.id, r.completedAt);
-      // After a restart, sockets may be gone without anyone having been told.
+      // After a restart, sockets may be gone without anyone having been told. A computer opponent never has one.
       for (const seat of this.state ? [this.state.host, this.state.guest] : []) {
-        if (this.state && seat?.connected && !this.socketsOf(seat.ownerId).length)
+        if (this.state && seat?.connected && !isBot(seat.ownerId) && !this.socketsOf(seat.ownerId).length)
           this.publish(disconnect(this.state, seat.ownerId, Date.now()));
       }
     });

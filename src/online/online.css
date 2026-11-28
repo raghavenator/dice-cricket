@@ -47,6 +47,11 @@
 .on-ready { color: var(--win); font-weight: 700; }
 .on-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--chip-w); margin-right: 2px; }
 .on-here { background: var(--win); }
+.on-bot {
+  display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 4px; vertical-align: 0.1em;
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em; line-height: 1.5;
+  color: var(--muted); border: 1px solid var(--border); background: var(--surface-2);
+}
 .on-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
 
 .on-lineup { max-width: 600px; margin-top: 16px; }
