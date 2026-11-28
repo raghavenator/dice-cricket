@@ -17,6 +17,9 @@ function moveFocus(e: KeyboardEvent<HTMLElement>) {
   items[next].focus();
 }
 
+/** Each menu item's place in the slide-in, one after another. */
+const order = (i: number) => ({ ['--i' as string]: i });
+
 const TITLE_ROLL_EVERY_MS = 5000;
 const TITLE_ROLL_MS = 1000;
 /** Rests at an angle like the dice emoji: its top and right side show beside the number facing you. */
@@ -65,18 +68,21 @@ export function Home() {
         <img className="title-silhouette" src={silhouette} alt="" aria-hidden draggable={false} />
         <header className="title-head">
           <TitleDie />
-          <h1 className="title-logo">Dice Cricket</h1>
-          <p className="title-tagline">Eleven players a side, one die. 1–4 and 6 score runs, and a 5 means a wicket check.</p>
+          <h1 className="title-logo">
+            D<span className="title-logo-red">i</span>ce Cr<span className="title-logo-red">i</span>cket
+          </h1>
+          <p className="title-tagline">One die. 1–4 and 6 score runs, and a 5 means a wicket check.</p>
         </header>
 
-        <nav className="title-menu" aria-label="Main menu" onKeyDown={moveFocus}>
+        <nav className="title-menu home-menu" aria-label="Main menu" onKeyDown={moveFocus}>
           {import.meta.env.VITE_ONLINE_URL && (
-            <button className="title-item" onClick={() => window.location.assign('./online.html')}>
+            <button className="title-item title-featured" style={order(0)} onClick={() => window.location.assign('./online.html')}>
+              <span className="title-shine" aria-hidden />
               Online 1v1
             </button>
           )}
           {resumable && (
-            <button className="title-item" onClick={() => go({ name: 'match' })}>
+            <button className="title-item" style={order(1)} onClick={() => go({ name: 'match' })}>
               Resume Match
               <span className="title-extra">
                 {getTeam(resumable, currentInnings(resumable).battingTeamId).short} {currentInnings(resumable).runs}/
@@ -84,13 +90,13 @@ export function Home() {
               </span>
             </button>
           )}
-          <button className="title-item" onClick={() => go({ name: 'localSim' })}>
+          <button className="title-item" style={order(2)} onClick={() => go({ name: 'localSim' })}>
             Local Sim
             {inProgress > 0 && <span className="title-extra">{inProgress} in progress</span>}
           </button>
-          <button className="title-item" onClick={() => go({ name: 'teams' })}>Teams</button>
-          <button className="title-item" onClick={() => go({ name: 'stats' })}>Stats &amp; History</button>
-          <button className="title-item" onClick={() => go({ name: 'backup' })}>Backup &amp; Restore</button>
+          <button className="title-item" style={order(3)} onClick={() => go({ name: 'teams' })}>Teams</button>
+          <button className="title-item" style={order(4)} onClick={() => go({ name: 'stats' })}>Stats &amp; History</button>
+          <button className="title-item" style={order(5)} onClick={() => go({ name: 'backup' })}>Backup &amp; Restore</button>
         </nav>
       </div>
     </div>

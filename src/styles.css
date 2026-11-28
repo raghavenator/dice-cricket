@@ -136,13 +136,18 @@ h3 { font-size: 1.05rem; }
 }
 .title-logo {
   font-family: 'Russo One', system-ui, sans-serif; font-weight: 400;
-  font-size: clamp(2.3rem, 9vw, 4.6rem); line-height: 1; letter-spacing: 0.02em; text-transform: uppercase;
-  margin: 10px 0 12px;
+  font-size: clamp(2.3rem, 9vw, 4.6rem); line-height: 1; letter-spacing: 0.06em; text-transform: uppercase;
+  margin: 20px 0 12px;
   background: linear-gradient(180deg, #ffffff 0%, #eef2f0 45%, #a9b4ae 55%, #e3e8e5 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  -webkit-text-stroke: 1.5px #0b2a15;
-  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.4));
+  /* Russo One has one weight, so a light stroke drawn behind each letter makes it bolder. */
+  -webkit-text-stroke: 0.055em #e9eeeb; paint-order: stroke fill;
+  /* The dark outline, drawn around the bolder letters, then the shadows. */
+  filter: drop-shadow(2px 0 0 #0b2a15) drop-shadow(-2px 0 0 #0b2a15) drop-shadow(0 2px 0 #0b2a15) drop-shadow(0 -2px 0 #0b2a15)
+    drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35)) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.4));
 }
+/* The I's in the title, in the red of the die's one pip. */
+.title-logo-red { color: var(--chip-w); -webkit-text-fill-color: var(--chip-w); -webkit-text-stroke-color: var(--chip-w); }
 .title-tagline { margin: 0 auto; max-width: 30rem; font-size: 0.9rem; color: rgba(242, 247, 241, 0.7); }
 .title-menu { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .title-item {
@@ -156,6 +161,65 @@ h3 { font-size: 1.05rem; }
 .title-item:hover, .title-item:focus-visible {
   outline: none;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3) 25%, rgba(255, 255, 255, 0.3) 75%, transparent);
+}
+/* ---------- Home menu: game-style motion (the online pages share .title-item but not this) ---------- */
+.home-menu { gap: 10px; }
+.home-menu .title-item {
+  position: relative;
+  /* Outlined, on a slightly darker see-through panel so the backdrop still shows. */
+  width: min(290px, 100%); padding: 8px 30px; border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.45); background: rgba(0, 0, 0, 0.22);
+  /* Slide in one after another. Only "backwards", so once in, hover and press can move them. */
+  animation: menu-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards;
+  animation-delay: calc(200ms + var(--i, 0) * 70ms);
+  transition: background 0.12s, border-color 0.12s, transform 0.15s ease-out;
+}
+.home-menu .title-item:hover, .home-menu .title-item:focus-visible {
+  transform: scale(1.07); background: rgba(0, 0, 0, 0.34); border-color: rgba(255, 255, 255, 0.85);
+}
+.home-menu .title-item:active { transform: scale(0.97); }
+/* Arrows at the edges of the item you are on, nudging inwards. Out of the flow, so the text never shifts or wraps. */
+.home-menu .title-item::before, .home-menu .title-item::after {
+  position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
+  font-size: 0.6em; color: #ffd23a; opacity: 0; transition: opacity 0.15s;
+}
+.home-menu .title-item::before { content: '▶'; left: 14px; }
+.home-menu .title-item::after { content: '◀'; right: 14px; }
+.home-menu .title-item:hover::before, .home-menu .title-item:focus-visible::before { opacity: 1; animation: nudge-right 0.7s ease-in-out infinite; }
+.home-menu .title-item:hover::after, .home-menu .title-item:focus-visible::after { opacity: 1; animation: nudge-left 0.7s ease-in-out infinite; }
+@keyframes menu-in { from { opacity: 0; transform: translateY(16px) scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes nudge-right { 50% { transform: translateX(4px); } }
+@keyframes nudge-left { 50% { transform: translateX(-4px); } }
+
+/* Online 1v1: a glowing red button, in the red of the title's I's, with a light sweeping across it now and then. */
+.home-menu .title-featured {
+  margin: 2px 0 6px; font-size: 1.35rem; overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  background: linear-gradient(180deg, #ec4048 0%, #c41f29 55%, #9c141c 100%);
+  animation: menu-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards, featured-glow 2.4s ease-in-out 1s infinite;
+  animation-delay: 200ms, 1s;
+}
+.home-menu .title-featured:hover, .home-menu .title-featured:focus-visible {
+  background: linear-gradient(180deg, #f5545c 0%, #d42a34 55%, #a8161e 100%);
+}
+.home-menu .title-featured::before, .home-menu .title-featured::after { color: #ffffff; }
+.title-shine {
+  position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; pointer-events: none;
+  /* Slanted by the gradient's angle: Chrome drops a soft gradient like this on a skewed element. */
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.85) 50%, rgba(255, 255, 255, 0) 70%);
+  animation: shine 4s ease-in-out 1.5s infinite;
+}
+@keyframes featured-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(236, 64, 72, 0.55), 0 6px 14px rgba(0, 0, 0, 0.45); }
+  50% { box-shadow: 0 0 22px 4px rgba(236, 64, 72, 0.55), 0 6px 14px rgba(0, 0, 0, 0.45); }
+}
+@keyframes shine { 0%, 70% { left: -60%; } 100% { left: 130%; } }
+@media (prefers-reduced-motion: reduce) {
+  .home-menu .title-item, .home-menu .title-featured, .title-shine,
+  .home-menu .title-item:hover::before, .home-menu .title-item:hover::after,
+  .home-menu .title-item:focus-visible::before, .home-menu .title-item:focus-visible::after { animation: none; }
+  .home-menu .title-item:hover, .home-menu .title-item:focus-visible { transform: none; }
+  .home-menu .title-featured { box-shadow: 0 0 16px 2px rgba(236, 64, 72, 0.5), 0 6px 14px rgba(0, 0, 0, 0.45); }
 }
 .title-extra {
   font-family: system-ui, sans-serif; font-size: 0.75rem; letter-spacing: 0; text-transform: none;
