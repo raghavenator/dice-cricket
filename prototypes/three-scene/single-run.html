@@ -1,0 +1,520 @@
+<!doctype html>
+<!--
+  Three.js prototype: one delivery, hit along the ground to the leg side for a single.
+  Reference only. It is not part of the game build (vite.config.ts only builds index.html and online.html).
+
+  Open it from the dev server, for example http://localhost:5179/prototypes/three-scene/single-run.html
+  three.js is loaded from a CDN here; the real integration should use the npm package.
+
+  How it works
+  - Everything is built from code: no model or texture files. Textures are drawn on canvases.
+  - Players are low-poly capsule rigs (hips, torso, head, shoulders, elbows, hips, knees, feet).
+    A pose is a flat set of joint angles (see applyPose); hip height is solved so the lower foot touches the ground.
+  - Animations are keyframed poses over a timeline (keyed / lerpPose); bats are placed from the hand grip and a direction.
+  - The ball path is computed from three points: release (bowler's hand), bounce (good length) and bat contact
+    (the bat's sweet spot at the contact time), with gravity between them. After the hit it rolls in HIT_DIR and slows down.
+  - The score label is a second, orthographic scene drawn on top.
+  - World axes: the striker's end is at z = -10.06, the bowler's end at z = +10.06; the camera sits behind the bowler.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Single run prototype</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #bcd4ea; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.181.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.181.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<script type="module">
+// Full URLs so Vite's dev server leaves these imports alone; the import map above serves OrbitControls' own "three" import.
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.181.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.181.0/examples/jsm/controls/OrbitControls.js';
+
+const canvas = document.getElementById('scene');
+const width = window.innerWidth, height = window.innerHeight;
+
+// ================= setup =================
+const SKY = 0xbcd4ea;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 70, 160);
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(width, height);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.autoClear = false;
+
+const camera = new THREE.PerspectiveCamera(30, width / height, 0.1, 400);
+camera.position.set(0.6, 8, 24);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 5);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI / 2 - 0.04;
+controls.update();
+
+scene.add(new THREE.HemisphereLight(0xe6f0ff, 0x5d7a35, 1.1));
+const sun = new THREE.DirectionalLight(0xfff2dc, 2.4);
+sun.position.set(-16, 32, 14);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 26, bottom: -26, near: 1, far: 90 });
+sun.shadow.camera.updateProjectionMatrix();
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+scene.add(sun);
+
+// ================= helpers =================
+const rand = (a, b) => a + Math.random() * (b - a);
+const smooth = (u) => u * u * (3 - 2 * u);
+const clamp01 = (u) => Math.max(0, Math.min(1, u));
+function makeTex(w, h, draw, rx = 1, ry = 1) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+const M = (c, r = 0.8) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
+const G = {
+  sphere: new THREE.SphereGeometry(1, 16, 12),
+  dome: new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+  box: new THREE.BoxGeometry(1, 1, 1),
+  cyl: new THREE.CylinderGeometry(1, 1, 1, 20),
+};
+const capCache = {};
+const capsule = (r, l) => capCache[r + '/' + l] || (capCache[r + '/' + l] = new THREE.CapsuleGeometry(r, l, 4, 12));
+function add(parent, geo, mat, pos = [0, 0, 0], scale = [1, 1, 1], rot = [0, 0, 0]) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(...pos); m.scale.set(...scale); m.rotation.set(...rot);
+  m.castShadow = true; parent.add(m); return m;
+}
+
+// ================= ground, pitch, creases, stumps =================
+const grassTex = makeTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#7ea24a'; g.fillRect(0, 0, w, h / 2);
+  g.fillStyle = '#719642'; g.fillRect(0, h / 2, w, h / 2);
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,210,0.06)' : 'rgba(20,45,0,0.08)';
+    g.fillRect(rand(0, w), rand(0, h), rand(1, 2), rand(1, 4));
+  }
+}, 16, 16);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+
+const pitchTex = makeTex(128, 512, (g, w, h) => {
+  g.fillStyle = '#cdb58b'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 5000; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(255,245,220,0.14)' : 'rgba(120,95,60,0.10)';
+    g.fillRect(rand(0, w), rand(0, h), rand(1, 3), rand(1, 3));
+  }
+  const worn = (y) => {
+    const gr = g.createRadialGradient(w / 2, y, 2, w / 2, y, 44);
+    gr.addColorStop(0, 'rgba(150,118,78,0.45)'); gr.addColorStop(1, 'rgba(150,118,78,0)');
+    g.fillStyle = gr; g.fillRect(0, y - 60, w, 120);
+  };
+  worn(h * 0.1); worn(h * 0.9);
+});
+const pitch = new THREE.Mesh(new THREE.PlaneGeometry(3.05, 24), new THREE.MeshStandardMaterial({ map: pitchTex, roughness: 0.95 }));
+pitch.rotation.x = -Math.PI / 2; pitch.position.y = 0.01; pitch.receiveShadow = true; scene.add(pitch);
+
+const lineMat = new THREE.MeshStandardMaterial({ color: 0xf6f6f0, roughness: 0.9 });
+function stripe(x, z, w, d) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), lineMat);
+  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.02, z); m.receiveShadow = true; scene.add(m);
+}
+for (const e of [1, -1]) {
+  stripe(0, e * 10.06, 2.64, 0.05);                                    // bowling crease
+  stripe(0, e * 8.84, 6.0, 0.05);                                      // popping crease
+  for (const sx of [-1.32, 1.32]) stripe(sx, e * 10.06, 0.05, 2.44);   // return creases
+}
+const stumpMat = M(0xeadfc4, 0.55);
+for (const z of [10.06, -10.06]) {
+  const g = new THREE.Group();
+  for (const x of [-0.114, 0, 0.114]) add(g, G.cyl, stumpMat, [x, 0.355, 0], [0.018, 0.71, 0.018]);
+  for (const x of [-0.057, 0.057]) add(g, G.box, stumpMat, [x, 0.72, 0], [0.11, 0.015, 0.015]);
+  g.position.z = z; scene.add(g);
+}
+
+// ================= player rig =================
+function numberTex(n, color) {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.font = 'bold 92px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.35)'; g.strokeText(String(n), 64, 70);
+  g.fillStyle = color; g.fillText(String(n), 64, 70);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const padMat = M(0xf4f4f0, 0.7), metal = M(0x8c9196, 0.4);
+
+function makePlayer(o) {
+  const shirt = M(o.shirt), pants = M(o.pants ?? o.shirt), skin = M(o.skin, 0.65), shoe = M(o.shoe ?? 0xf0f0f0, 0.6);
+  const glove = o.gloves ? M(0xf3f1ea, 0.7) : skin;
+  const root = new THREE.Group(), hips = new THREE.Group(); root.add(hips);
+  add(hips, capsule(0.12, 0.12), pants, [0, 0.02, 0], [1, 1, 0.85], [0, 0, Math.PI / 2]);
+  const torso = new THREE.Group(); torso.position.y = 0.07; hips.add(torso);
+  add(torso, capsule(0.16, 0.3), shirt, [0, 0.28, 0], [1.3, 1, 0.8]);
+  if (o.number != null) {
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22),
+      new THREE.MeshStandardMaterial({ map: numberTex(o.number, o.numColor), transparent: true, roughness: 0.8 }));
+    pl.position.set(0, 0.33, -0.131); pl.rotation.y = Math.PI; torso.add(pl);
+  }
+  const neck = new THREE.Group(); neck.position.y = 0.56; torso.add(neck);
+  add(neck, capsule(0.05, 0.05), skin, [0, 0.03, 0]);
+  const head = new THREE.Group(); head.position.y = 0.1; head.rotation.order = 'YXZ'; neck.add(head);
+  add(head, G.sphere, skin, [0, 0.08, 0], [0.1, 0.118, 0.11]);
+  const hw = M(o.headColor ?? 0x222222, 0.6);
+  if (o.head === 'cap') {
+    add(head, G.dome, hw, [0, 0.1, 0], [0.112, 0.1, 0.118]);
+    add(head, G.cyl, hw, [0, 0.1, 0.1], [0.1, 0.012, 0.09]);
+  } else if (o.head === 'helmet') {
+    add(head, G.dome, hw, [0, 0.06, -0.005], [0.13, 0.13, 0.138]);
+    add(head, G.cyl, hw, [0, 0.07, 0.1], [0.11, 0.012, 0.08]);
+    for (const y of [-0.02, 0.015, 0.045]) add(head, G.box, metal, [0, y, 0.13], [0.19, 0.008, 0.008]);
+    for (const x of [-0.07, 0, 0.07]) add(head, G.box, metal, [x, 0.01, 0.13], [0.008, 0.08, 0.008]);
+  } else if (o.head === 'umpire') {
+    add(head, G.cyl, hw, [0, 0.12, 0], [0.2, 0.012, 0.2]);
+    add(head, G.cyl, hw, [0, 0.17, 0], [0.112, 0.09, 0.115]);
+  } else if (o.head === 'hair') {
+    add(head, G.dome, hw, [0, 0.1, -0.005], [0.106, 0.085, 0.115]);
+  }
+  function arm(side) {
+    const sh = new THREE.Group(); sh.position.set(0.22 * side, 0.5, 0); torso.add(sh);
+    add(sh, capsule(0.055, 0.2), shirt, [0, -0.14, 0]);
+    const el = new THREE.Group(); el.position.y = -0.3; sh.add(el);
+    add(el, capsule(0.045, 0.18), shirt, [0, -0.13, 0]);
+    const hand = new THREE.Group(); hand.position.y = -0.29; el.add(hand);
+    add(hand, G.sphere, glove, [0, -0.02, 0], o.gloves === 'keeper' ? [0.075, 0.065, 0.09] : [0.05, 0.05, 0.055]);
+    return { sh, el, hand };
+  }
+  function leg(side) {
+    const hp = new THREE.Group(); hp.position.set(0.1 * side, -0.02, 0); hips.add(hp);
+    add(hp, capsule(0.075, 0.3), pants, [0, -0.22, 0]);
+    const kn = new THREE.Group(); kn.position.y = -0.45; hp.add(kn);
+    add(kn, capsule(0.06, 0.3), pants, [0, -0.21, 0]);
+    if (o.pads) {
+      add(kn, G.box, padMat, [0, -0.2, 0.045], [0.15, 0.5, 0.12]);
+      add(kn, G.box, padMat, [0, 0.03, 0.06], [0.15, 0.13, 0.11]);
+    }
+    const ft = new THREE.Group(); ft.position.y = -0.44; kn.add(ft);
+    add(ft, G.box, shoe, [0, 0, 0.05], [0.1, 0.07, 0.26]);
+    return { hp, kn, ft };
+  }
+  const P = { root, hips, torso, head, armL: arm(1), armR: arm(-1), legL: leg(1), legR: leg(-1) };
+  scene.add(root);
+  return P;
+}
+
+// A pose is a flat set of joint angles. Local +z is the player's front, local +x is the player's left.
+// Negative hip/shoulder X swings a limb forward; positive knee X bends the knee.
+const gv = (s, k) => s[k] || 0;
+function applyPose(P, s) {
+  const drop = (sd) => (0.45 * Math.cos(gv(s, 'hip' + sd + 'X')) + 0.44 * Math.cos(gv(s, 'hip' + sd + 'X') + gv(s, 'knee' + sd))) * Math.cos(gv(s, 'hip' + sd + 'Z'));
+  P.hips.position.y = Math.max(drop('L'), drop('R')) + 0.055 + gv(s, 'lift');
+  P.hips.rotation.set(0, gv(s, 'hipTwist'), 0);
+  P.torso.rotation.set(gv(s, 'torsoX'), gv(s, 'torsoY'), gv(s, 'torsoZ'));
+  P.head.rotation.set(gv(s, 'headX'), gv(s, 'headY'), 0);
+  for (const [lg, sd] of [[P.legL, 'L'], [P.legR, 'R']]) {
+    lg.hp.rotation.set(gv(s, 'hip' + sd + 'X'), 0, gv(s, 'hip' + sd + 'Z'));
+    lg.kn.rotation.x = gv(s, 'knee' + sd);
+    lg.ft.rotation.x = -(gv(s, 'hip' + sd + 'X') + gv(s, 'knee' + sd)) + gv(s, 'toe' + sd);
+  }
+  for (const [am, sd] of [[P.armL, 'L'], [P.armR, 'R']]) {
+    am.sh.rotation.set(gv(s, 'sh' + sd + 'X'), 0, gv(s, 'sh' + sd + 'Z'));
+    am.el.rotation.x = gv(s, 'el' + sd);
+  }
+}
+function lerpPose(a, b, t) {
+  const out = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) out[k] = gv(a, k) + (gv(b, k) - gv(a, k)) * t;
+  return out;
+}
+function keyed(keys, t, ease = true) {
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [t0, a] = keys[i], [t1, b] = keys[i + 1];
+    if (t <= t1) { const u = (t - t0) / (t1 - t0); return lerpPose(a, b, ease ? smooth(u) : u); }
+  }
+  return keys[keys.length - 1][1];
+}
+function runPose(ph, amp = 1) {
+  const s = Math.sin(ph) * amp, c = Math.cos(ph);
+  return {
+    hipLX: -0.75 * s, hipRX: 0.75 * s,
+    kneeL: (0.25 + 1.1 * Math.max(0, c)) * amp, kneeR: (0.25 + 1.1 * Math.max(0, -c)) * amp,
+    shLX: 0.7 * s, shRX: -0.7 * s, elL: -1.4 * amp, elR: -1.4 * amp, shLZ: 0.08 * amp, shRZ: -0.08 * amp,
+    torsoX: 0.22 * amp, hipTwist: 0.12 * s, torsoY: -0.12 * s, lift: 0.06 * Math.abs(s),
+  };
+}
+
+// ================= bat =================
+const Y = new THREE.Vector3(0, 1, 0);
+// Rotation for a bat whose toe points along (x, y, z) from the grip.
+const qToe = (x, y, z) => new THREE.Quaternion().setFromUnitVectors(Y, new THREE.Vector3(-x, -y, -z).normalize());
+function keyedQ(keys, t) {
+  if (t <= keys[0][0]) return keys[0][1].clone();
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [t0, a] = keys[i], [t1, b] = keys[i + 1];
+    if (t <= t1) return new THREE.Quaternion().slerpQuaternions(a, b, smooth((t - t0) / (t1 - t0)));
+  }
+  return keys[keys.length - 1][1].clone();
+}
+function makeBat() {
+  const g = new THREE.Group(), wood = M(0xe3cf9e, 0.55), grip = M(0x222222, 0.8);
+  add(g, G.box, wood, [0, 0.29, 0], [0.108, 0.56, 0.045]);
+  add(g, G.box, wood, [0, 0.25, -0.025], [0.06, 0.4, 0.03]);
+  add(g, capsule(0.016, 0.26), grip, [0, 0.72, 0]);
+  scene.add(g); return g;
+}
+function setBat(bat, grip, q) {
+  const u = Y.clone().applyQuaternion(q);
+  bat.quaternion.copy(q);
+  bat.position.copy(grip).addScaledVector(u, -0.74);
+  return u;
+}
+
+// ================= cast =================
+const FIELD = { shirt: 0x2b7a3e, pants: 0x22663a, numColor: '#f1d63c', headColor: 0x1e5a2e };
+const BAT = { shirt: 0x2e47b8, pants: 0x283f9c, numColor: '#f4d530', headColor: 0x1d2a6e };
+
+const bowler = makePlayer({ ...FIELD, skin: 0x8d5a3b, head: 'hair', headColor: 0x1b1410, number: 9 });
+const umpire = makePlayer({ shirt: 0xb6cfe6, pants: 0x6e6250, shoe: 0x2a2a2a, skin: 0xa8714d, head: 'umpire', headColor: 0xf5f5f0 });
+umpire.root.position.set(0.35, 0, 11.6); umpire.root.rotation.y = Math.PI;
+applyPose(umpire, { hipLZ: 0.06, hipRZ: -0.06, shLZ: 0.07, shRZ: -0.07, elL: -0.25, elR: -0.25, torsoX: 0.04 });
+const striker = makePlayer({ ...BAT, skin: 0x7a4b2e, head: 'helmet', number: 5, pads: true, gloves: 'bat' });
+const ns = makePlayer({ ...BAT, skin: 0x6f4429, head: 'helmet', number: 2, pads: true, gloves: 'bat' });
+const keeper = makePlayer({ ...FIELD, skin: 0x8d5a3b, head: 'cap', pads: true, gloves: 'keeper' });
+keeper.root.position.set(-0.15, 0, -12.6);
+const sBat = makeBat(), nsBat = makeBat();
+
+const ball = add(scene, G.sphere, new THREE.MeshStandardMaterial({ color: 0xb01e1e, roughness: 0.4, emissive: 0x400808 }), [0, 0, 0], [0.05, 0.05, 0.05]);
+const BR = 0.05;   // drawn larger than a real ball so it shows from the broadcast camera
+const ghosts = [];
+for (let i = 1; i <= 8; i++) {
+  const g = new THREE.Mesh(G.sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32 * (1 - i / 9), depthWrite: false }));
+  g.scale.setScalar(BR * (1 - i * 0.06)); scene.add(g); ghosts.push(g);
+}
+
+// ================= poses =================
+// Bowler (right-arm over the wicket). The bowling arm's shRX increases monotonically through the action.
+const P_GATHER = { hipLX: -1.2, kneeL: 1.5, hipRX: 0.25, kneeR: 0.6, toeR: 0.4, torsoX: -0.05, torsoY: -0.6, hipTwist: -0.35, headY: 0.85,
+  shLX: -2.6, shLZ: 0.1, elL: -0.4, shRX: -1.3, shRZ: 0.25, elR: -1.9 };
+const P_LOAD = { hipLX: -0.8, kneeL: 0.4, hipRX: 0.3, kneeR: 0.5, torsoX: -0.15, torsoY: -0.9, hipTwist: -0.5, headY: 1.2,
+  shLX: -2.9, shLZ: 0.2, elL: 0, shRX: 0.6, shRZ: -0.1, elR: 0 };
+const P_RELEASE = { hipLX: -0.6, kneeL: 0.1, hipRX: 0.55, kneeR: 0.3, toeR: 0.5, torsoX: 0.35, torsoY: -0.1, hipTwist: -0.15, headY: 0.2,
+  shLX: -0.3, shLZ: 0.4, elL: -0.6, shRX: Math.PI + 0.3, shRZ: -0.1, elR: 0 };
+const P_FOLLOW = { hipLX: -0.4, kneeL: 0.35, hipRX: 0.9, kneeR: 0.9, torsoX: 0.75, torsoY: 0.5, hipTwist: 0.2, headX: -0.3, headY: -0.3,
+  shLX: 0.5, shLZ: 0.3, elL: -0.5, shRX: 2 * Math.PI + 0.4, shRZ: 0.5, elR: -0.2 };
+
+// Striker (right-handed), keeper, non-striker.
+const P_STANCE = { hipLZ: 0.17, hipRZ: -0.17, hipLX: -0.28, hipRX: -0.28, kneeL: 0.5, kneeR: 0.5, torsoX: 0.38, torsoY: 0.15, headY: 1.15, headX: -0.3,
+  shLX: -0.55, shRX: -0.55, shLZ: -0.28, shRZ: 0.28, elL: -0.45, elR: -0.45 };
+const P_BACKLIFT = { hipLZ: 0.2, hipRZ: -0.17, hipLX: -0.4, kneeL: 0.7, hipRX: -0.28, kneeR: 0.5, torsoX: 0.35, headY: 1.2, headX: -0.3,
+  shLX: -1.1, shLZ: -0.7, elL: -0.4, shRX: -1.0, shRZ: -0.3, elR: -1.5 };
+const P_STRIDE = { hipLZ: 0.55, hipLX: -0.2, kneeL: 0.45, hipRZ: -0.15, kneeR: 0.35, torsoX: 0.5, torsoZ: -0.2, headY: 1.1, headX: -0.35,
+  shLX: -1.0, shLZ: -0.6, elL: -0.3, shRX: -0.9, shRZ: -0.2, elR: -1.3 };
+const P_CONTACT = { hipLZ: 0.55, hipLX: -0.2, kneeL: 0.5, hipRZ: -0.15, kneeR: 0.35, torsoX: 0.55, torsoZ: -0.25, torsoY: 0.3, headY: 0.9, headX: -0.45,
+  shLX: -0.45, shLZ: 0.15, elL: -0.1, shRX: -0.5, shRZ: 0.35, elR: -0.4 };
+const P_FLICK = { hipLZ: 0.55, hipLX: -0.2, kneeL: 0.5, hipRZ: -0.15, kneeR: 0.35, torsoX: 0.35, torsoY: 0.8, headY: 0.3, headX: -0.2,
+  shLX: -1.3, shLZ: 0.5, elL: -0.9, shRX: -1.4, shRZ: 0.5, elR: -0.6 };
+const P_REACH = { hipLX: -0.95, kneeL: 0.75, hipRX: 0.55, kneeR: 0.35, torsoX: 0.7, headX: -0.3,
+  shRX: -1.35, shRZ: -0.1, elR: -0.05, shLX: 0.4, shLZ: 0.15, elL: -0.6 };
+const P_STAND_BAT = { hipLZ: 0.06, hipRZ: -0.06, shRZ: -0.15, shRX: -0.3, elR: -0.3, shLZ: 0.1, elL: -0.2 };
+const P_NS = { hipLZ: 0.08, hipRZ: -0.1, kneeL: 0.08, torsoX: 0.05, shRZ: -0.3, shRX: -0.35, elR: -0.25, shLZ: 0.12, shLX: 0.05, elL: -0.3 };
+const P_KEEPER = { hipLX: -1.45, hipRX: -1.45, kneeL: 2.3, kneeR: 2.3, hipLZ: 0.32, hipRZ: -0.32, torsoX: 0.6, headX: -0.5,
+  shLX: -1.0, shRX: -1.0, shLZ: -0.12, shRZ: 0.12, elL: -0.25, elR: -0.25 };
+const P_KEEP_UP = { hipLX: -0.3, hipRX: -0.3, kneeL: 0.5, kneeR: 0.5, hipLZ: 0.15, hipRZ: -0.15, torsoX: 0.25, headY: -0.6,
+  shLX: -0.5, shRX: -0.5, elL: -0.6, elR: -0.6 };
+
+// ================= timeline (seconds) =================
+// The integration should run this faster; all timings are here.
+const TR = 2.315;          // release
+const TB = TR + 0.6;       // bounce
+const TC = TB + 0.22;      // bat meets ball
+const RUN0 = 3.7, RUN1 = 6.4;   // the single
+const T_SCORE = 6.35;
+const TOTAL = 8.7;
+const PH = 2 * Math.PI / 2.4;   // run-cycle radians per metre
+
+const v1 = new THREE.Vector3(), v2 = new THREE.Vector3();
+const angDiff = (a, b) => { let d = (b - a) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
+
+// ---- bowler ----
+const BZ0 = 18.5;
+function bowlerState(t) {
+  let pose, x = -0.75, z, ry = Math.PI;
+  if (t < 1.5) {                       // run-up
+    z = BZ0 + (13.4 - BZ0) * (t / 1.5); pose = runPose((BZ0 - z) * PH);
+  } else if (t < 2.0) {                // bound
+    const u = (t - 1.5) / 0.5;
+    z = 13.4 - 2.0 * u;
+    pose = lerpPose(runPose((BZ0 - 13.4) * PH), P_GATHER, smooth(clamp01(u * 2)));
+    pose.lift = gv(pose, 'lift') + 0.35 * Math.sin(Math.PI * u);
+  } else if (t < 2.45) {               // delivery stride and release
+    const u = (t - 2.0) / 0.45;
+    z = 11.4 - 1.8 * (1 - (1 - u) * (1 - u));
+    pose = keyed([[0, P_GATHER], [0.35, P_LOAD], [0.7, P_RELEASE], [1, P_FOLLOW]], u, false);
+  } else {                             // follow-through, veering off the pitch
+    const u = clamp01((t - 2.45) / 1.35), e = 1 - (1 - u) * (1 - u);
+    z = 9.6 - 3.0 * e; x = -0.75 - 1.4 * e;
+    ry = Math.PI + 0.44 * smooth(clamp01(u * 3));
+    pose = lerpPose(P_FOLLOW, runPose(3.3 * e * PH, 1 - u), smooth(clamp01(u * 4)));
+  }
+  bowler.root.position.set(x, 0, z); bowler.root.rotation.y = ry;
+  applyPose(bowler, pose); bowler.root.updateMatrixWorld(true);
+}
+
+// ---- batters ----
+const S_FROM = new THREE.Vector3(0.4, 0, -9.2), S_TO = new THREE.Vector3(-1.1, 0, 8.2), S_ROT = -Math.PI / 2 + 0.2;
+const S_KEYS = [[0, P_STANCE], [2.25, P_STANCE], [2.8, P_BACKLIFT], [2.98, P_STRIDE], [TC, P_CONTACT], [3.42, P_FLICK], [3.65, P_FLICK]];
+const S_BAT = [[0, qToe(0.05, -1, -0.2)], [2.25, qToe(0.05, -1, -0.2)], [2.8, qToe(0.1, 0.5, -0.86)], [2.98, qToe(0, 0.75, -0.66)],
+  [TC, qToe(-0.1, -0.95, 0.25)], [3.42, qToe(0.55, 0.5, 0.67)], [3.65, qToe(0.55, 0.5, 0.67)]];
+const N_FROM = new THREE.Vector3(2.1, 0, 8.7), N_TO = new THREE.Vector3(1.6, 0, -8.2), N_ROT = Math.PI + 0.15;
+const N_IDLE_Q = qToe(0.45, -0.85, -0.3);
+const sweet = new THREE.Vector3();
+
+// Runs a batter from one end to the other, grounding the bat at the end.
+function runner(P, bat, t, from, to, rot0, startPose, startQ) {
+  const d = to.clone().sub(from); const L = d.length(); d.divideScalar(L);
+  const runRot = Math.atan2(d.x, d.z);
+  const u = clamp01((t - RUN0) / (RUN1 - RUN0)), e = 0.5 * u + 0.5 * smooth(u);
+  const bi = smooth(clamp01((t - RUN0) / 0.25));
+  const bo = smooth(clamp01((u - 0.82) / 0.18));
+  const bs = smooth(clamp01((t - RUN1 - 0.35) / 0.6));
+  P.root.position.copy(from).addScaledVector(d, L * e);
+  P.root.rotation.y = rot0 + angDiff(rot0, runRot) * bi;
+  const ph = L * e * PH;
+  const rp = runPose(ph); rp.shRX = -0.35 - 0.2 * Math.sin(ph); rp.elR = -0.6; rp.shRZ = -0.12;
+  let pose = lerpPose(startPose, rp, bi);
+  pose = lerpPose(pose, P_REACH, bo);
+  pose = lerpPose(pose, P_STAND_BAT, bs);
+  applyPose(P, pose); P.root.updateMatrixWorld(true);
+  const q = new THREE.Quaternion().slerpQuaternions(startQ, qToe(d.x * 0.5, -0.86, d.z * 0.5), bi);
+  q.slerp(qToe(d.x * 0.8, -0.6, d.z * 0.8), bo);
+  q.slerp(qToe(d.x * 0.25, -1, d.z * 0.25), bs);
+  P.armR.hand.getWorldPosition(v1); setBat(bat, v1, q);
+}
+
+function strikerState(t) {
+  if (t < RUN0) {
+    striker.root.position.copy(S_FROM); striker.root.rotation.y = S_ROT;
+    applyPose(striker, keyed(S_KEYS, t)); striker.root.updateMatrixWorld(true);
+    striker.armL.hand.getWorldPosition(v1); striker.armR.hand.getWorldPosition(v2);
+    const u = setBat(sBat, v1.add(v2).multiplyScalar(0.5), keyedQ(S_BAT, t));
+    sweet.copy(sBat.position).addScaledVector(u, 0.2);
+  } else runner(striker, sBat, t, S_FROM, S_TO, S_ROT, P_FLICK, S_BAT[S_BAT.length - 1][1]);
+}
+
+function nsState(t) {
+  if (t < RUN0) {
+    let z = 9.4, pose = P_NS;
+    if (t >= 2.0) {   // backing up as the ball is bowled
+      const u = clamp01((t - 2.0) / 0.7);
+      z = 9.4 - 0.7 * smooth(u);
+      pose = lerpPose(P_NS, runPose(0.7 * smooth(u) * PH * 1.5, 0.4), Math.sin(Math.PI * u));
+    }
+    ns.root.position.set(2.1, 0, z); ns.root.rotation.y = N_ROT;
+    applyPose(ns, pose); ns.root.updateMatrixWorld(true);
+    ns.armR.hand.getWorldPosition(v1); setBat(nsBat, v1, N_IDLE_Q);
+  } else runner(ns, nsBat, t, N_FROM, N_TO, N_ROT, P_NS, N_IDLE_Q);
+}
+
+function keeperState(t) {
+  applyPose(keeper, lerpPose(P_KEEPER, P_KEEP_UP, smooth(clamp01((t - 3.25) / 0.5))));
+}
+
+// ---- ball path: precompute the release point and the bat contact point ----
+bowlerState(TR); const R = bowler.armR.hand.getWorldPosition(new THREE.Vector3());
+strikerState(TC); const C = sweet.clone(); C.y = Math.max(C.y, 0.12);
+const BZ = -3.3;                                     // good length
+const f = (R.z - BZ) / (R.z - C.z);
+const B = new THREE.Vector3(R.x + (C.x - R.x) * f, BR, BZ);
+const T1 = TB - TR, T2 = TC - TB, g = 9.8;
+const vy1 = (BR - R.y + 0.5 * g * T1 * T1) / T1;
+const vy2 = (C.y - BR + 0.5 * g * T2 * T2) / T2;
+const HIT_DIR = new THREE.Vector3(0.85, 0, 0.75).normalize();   // along the ground, leg side (towards midwicket)
+const V0 = 9, DEC = 3.6, TSTOP = V0 / DEC;
+
+function ballAt(t, out) {
+  if (t < TB) {
+    const tau = t - TR, u = tau / T1;
+    return out.set(R.x + (B.x - R.x) * u, R.y + vy1 * tau - 0.5 * g * tau * tau, R.z + (B.z - R.z) * u);
+  }
+  if (t < TC) {
+    const tau = t - TB, u = tau / T2;
+    return out.set(B.x + (C.x - B.x) * u, BR + vy2 * tau - 0.5 * g * tau * tau, B.z + (C.z - B.z) * u);
+  }
+  const tau = Math.min(t - TC, TSTOP);
+  const s = V0 * tau - 0.5 * DEC * tau * tau;
+  const hop = tau < 0.3 ? (C.y - BR) * (1 - tau / 0.3) ** 2 : 0;
+  return out.set(C.x + HIT_DIR.x * s, BR + hop, C.z + HIT_DIR.z * s);
+}
+
+// ================= score overlay =================
+const hudScene = new THREE.Scene();
+const hudCam = new THREE.OrthographicCamera(-width / 2, width / 2, height / 2, -height / 2, 0, 10);
+hudCam.position.z = 5;
+const scoreTex = makeTex(512, 512, (c, w, h) => {
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 30; c.shadowOffsetY = 10;
+  c.font = '900 390px "Arial Black", Arial, sans-serif';
+  c.lineWidth = 18; c.strokeStyle = '#0d2a5c'; c.strokeText('1', w / 2, h * 0.42);
+  const gr = c.createLinearGradient(0, 60, 0, 390);
+  gr.addColorStop(0, '#ffffff'); gr.addColorStop(1, '#ffd23a');
+  c.fillStyle = gr; c.fillText('1', w / 2, h * 0.42);
+  c.font = 'bold 80px Arial, sans-serif';
+  c.lineWidth = 10; c.strokeText('RUN', w / 2, h * 0.86);
+  c.fillStyle = '#ffffff'; c.fillText('RUN', w / 2, h * 0.86);
+});
+const scoreMat = new THREE.MeshBasicMaterial({ map: scoreTex, transparent: true, depthTest: false, toneMapped: false, opacity: 0 });
+const score = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), scoreMat);
+hudScene.add(score);
+const SCORE_SIZE = Math.min(width, height) * 0.62;
+const easeOutBack = (x) => 1 + 2.70158 * (x - 1) ** 3 + 1.70158 * (x - 1) ** 2;
+function scoreState(t) {
+  const tau = t - T_SCORE;
+  if (tau < 0) { score.visible = false; return; }
+  score.visible = true;
+  const s = SCORE_SIZE * (tau < 0.35 ? Math.max(0.01, easeOutBack(tau / 0.35)) : 1 + 0.015 * Math.sin(tau * 5));
+  score.scale.set(s, s, 1);
+  scoreMat.opacity = Math.min(1, tau / 0.12) * clamp01((TOTAL - t) / 0.45);
+}
+
+// ================= loop =================
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime() % TOTAL;
+  bowlerState(t); strikerState(t); nsState(t); keeperState(t);
+  if (t < TR) bowler.armR.hand.getWorldPosition(ball.position);
+  else ballAt(t, ball.position);
+  ghosts.forEach((gh, i) => {
+    const tt = t - (i + 1) * 0.025;
+    gh.visible = tt > TR && tt < TC + 1.2;
+    if (gh.visible) ballAt(tt, gh.position);
+  });
+  scoreState(t);
+  controls.update();
+  renderer.clear();
+  renderer.render(scene, camera);
+  renderer.clearDepth();
+  renderer.render(hudScene, hudCam);
+}
+animate();
+</script>
+</body>
+</html>
