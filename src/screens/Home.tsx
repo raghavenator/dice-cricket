@@ -1,4 +1,5 @@
-import type { KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { Die } from '../components/Die';
 import { getTeam, currentInnings } from '../engine/match';
 import { formatOvers } from '../engine/stats';
 import { useGame } from '../store/useGameStore';
@@ -16,6 +17,39 @@ function moveFocus(e: KeyboardEvent<HTMLElement>) {
   items[next].focus();
 }
 
+const TITLE_ROLL_EVERY_MS = 5000;
+const TITLE_ROLL_MS = 1000;
+/** Rests at an angle like the dice emoji: its top and right side show beside the number facing you. */
+const TITLE_TILT: [number, number] = [-24, -32];
+
+/** The title's die: every few seconds it hops and rolls to a different number. Still for anyone who prefers less motion. */
+function TitleDie() {
+  const [roll, setRoll] = useState({ value: 6, id: 0 });
+
+  useEffect(() => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const next = () =>
+      setRoll((r) => {
+        // Never the same number twice in a row, so every roll visibly changes.
+        const value = 1 + ((r.value + Math.floor(Math.random() * 5)) % 6);
+        return { value, id: r.id + 1 };
+      });
+    const first = window.setTimeout(next, 1200);
+    const every = window.setInterval(next, TITLE_ROLL_EVERY_MS);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, []);
+
+  return (
+    // Two identical hops taken in turn: changing the animation's name restarts it, while the die keeps its last face.
+    <div className={`title-dice ${roll.id ? `title-dice-hop-${roll.id % 2}` : ''}`} aria-hidden>
+      <Die value={roll.value} rollId={roll.id} duration={TITLE_ROLL_MS} size={52} tilt={TITLE_TILT} />
+    </div>
+  );
+}
+
 export function Home() {
   const go = useGame((s) => s.go);
   const live = useGame((s) => s.live);
@@ -30,7 +64,7 @@ export function Home() {
       <div className="title-screen">
         <img className="title-silhouette" src={silhouette} alt="" aria-hidden draggable={false} />
         <header className="title-head">
-          <div className="title-dice" aria-hidden>🎲</div>
+          <TitleDie />
           <h1 className="title-logo">Dice Cricket</h1>
           <p className="title-tagline">Eleven players a side, one die. 1–4 and 6 score runs, and a 5 means a wicket check.</p>
         </header>

@@ -28,10 +28,13 @@ interface Props {
   size?: number;
   tone?: 'normal' | 'check';
   dim?: boolean;
+  /** Optional fixed [x, y] tilt (deg), so the die always rests at an angle showing its top and a side. */
+  tilt?: [number, number];
 }
 
-export function Die({ value, rollId, duration, size = 92, tone = 'normal', dim }: Props) {
-  const [rot, setRot] = useState<[number, number]>([-14, 18]);
+export function Die({ value, rollId, duration, size = 92, tone = 'normal', dim, tilt }: Props) {
+  // A tilted die starts squarely on its face, and the tilt shows it at an angle.
+  const [rot, setRot] = useState<[number, number]>(() => (tilt ? FACE_ROT[value ?? 1] : [-14, 18]));
   const [animate, setAnimate] = useState(false);
   const rotRef = useRef(rot);
   rotRef.current = rot;
@@ -72,7 +75,7 @@ export function Die({ value, rollId, duration, size = 92, tone = 'normal', dim }
       <div
         className="die-cube"
         style={{
-          transform: `rotateX(${rot[0]}deg) rotateY(${rot[1]}deg)`,
+          transform: `${tilt ? `rotateX(${tilt[0]}deg) rotateY(${tilt[1]}deg) ` : ''}rotateX(${rot[0]}deg) rotateY(${rot[1]}deg)`,
           transition: animate ? `transform ${duration}ms cubic-bezier(.17,.67,.29,1.02)` : 'none',
         }}
       >

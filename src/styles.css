@@ -111,7 +111,29 @@ h3 { font-size: 1.05rem; }
   filter: drop-shadow(0 0 18px rgba(0, 0, 0, 0.35));
 }
 @media (max-width: 760px) { .title-silhouette { height: 45%; opacity: 0.4; } }
-.title-dice { font-size: 3rem; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45)); }
+.title-dice {
+  display: inline-block; filter: drop-shadow(0 4px 5px rgba(0, 0, 0, 0.45));
+  transform-origin: 50% 90%;
+}
+/* Each roll (Home.tsx): a crouch, a hop while the die spins, and a landing bounce. Two names so each roll restarts it. */
+.title-dice-hop-0 { animation: title-dice-hop-0 1.05s ease-in-out; }
+.title-dice-hop-1 { animation: title-dice-hop-1 1.05s ease-in-out; }
+@keyframes title-dice-hop-0 {
+  0% { transform: none; }
+  10% { transform: translateY(2px) scale(1.1, 0.88); }
+  35% { transform: translateY(-34px) scale(0.97, 1.04); }
+  68% { transform: translateY(0) scale(1.1, 0.9); }
+  82% { transform: translateY(-6px); }
+  100% { transform: none; }
+}
+@keyframes title-dice-hop-1 {
+  0% { transform: none; }
+  10% { transform: translateY(2px) scale(1.1, 0.88); }
+  35% { transform: translateY(-34px) scale(0.97, 1.04); }
+  68% { transform: translateY(0) scale(1.1, 0.9); }
+  82% { transform: translateY(-6px); }
+  100% { transform: none; }
+}
 .title-logo {
   font-family: 'Russo One', system-ui, sans-serif; font-weight: 400;
   font-size: clamp(2.3rem, 9vw, 4.6rem); line-height: 1; letter-spacing: 0.02em; text-transform: uppercase;
